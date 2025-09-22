@@ -16,5 +16,4 @@ com/example/reportsystem/service/ChatLogService.class
 com/example/reportsystem/model/ReportStatus.class
 com/example/reportsystem/util/Pagination.class
 com/example/reportsystem/config/PluginConfig$ReportTypeDef.class
-com/example/reportsystem/commands/CommandTrees.class
 com/example/reportsystem/config/ConfigManager.class

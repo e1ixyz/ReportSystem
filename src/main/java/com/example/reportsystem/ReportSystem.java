@@ -1,6 +1,5 @@
 package com.example.reportsystem;
 
-import com.example.reportsystem.commands.CommandTrees;
 import com.example.reportsystem.commands.ReportCommand;
 import com.example.reportsystem.commands.ReportHistoryCommand;
 import com.example.reportsystem.commands.ReportsCommand;
@@ -26,7 +25,7 @@ import java.nio.file.Path;
     name = "ReportSystem",
     version = "2.1.0",
     authors = {"yourname"},
-    description = "Dynamic report system with stacking, search, assignees, Brigadier, Discord webhooks, and chat logs."
+    description = "Dynamic report system with stacking, search, assignees, Discord webhooks, and chat logs."
 )
 public final class ReportSystem {
 
@@ -65,14 +64,10 @@ public final class ReportSystem {
         this.notifier = new Notifier(this, config);
         proxy.getEventManager().register(this, chatLogService);
 
-        // Core commands (SimpleCommand logic)
         CommandManager cm = proxy.getCommandManager();
         cm.register(cm.metaBuilder("report").build(), new ReportCommand(this, reportManager, chatLogService, config));
         cm.register(cm.metaBuilder("reports").build(), new ReportsCommand(this, reportManager, config));
         cm.register(cm.metaBuilder("reporthistory").build(), new ReportHistoryCommand(this, reportManager, config));
-
-        // Brigadier trees for rich tab completion
-        CommandTrees.registerAll(this, cm, reportManager, config);
 
         logger.info("ReportSystem initialized. Data dir: {}", dataDir.toAbsolutePath());
     }
@@ -93,8 +88,6 @@ public final class ReportSystem {
             chatLogService.setConfig(config);
             notifier.setConfig(config);
             Text.reloadMiniMessage();
-            // refresh Brigadier dynamic suggestions
-            CommandTrees.registerAll(this, proxy.getCommandManager(), reportManager, config);
             logger.info("ReportSystem reloaded.");
         } catch (Exception ex) {
             logger.error("Reload failed", ex);

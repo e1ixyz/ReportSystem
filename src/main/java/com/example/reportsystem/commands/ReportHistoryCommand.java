@@ -36,20 +36,35 @@ public class ReportHistoryCommand implements SimpleCommand {
         if (args.length == 0) { showPage(src, 1); return; }
 
         switch (args[0].toLowerCase()) {
-            case "page" -> { /* unchanged */ int page = 1; if (args.length >= 2) { try { page = Math.max(1, Integer.parseInt(args[1])); } catch (Exception ignored) {} } showPage(src, page); }
+            case "page" -> {
+                int page = 1;
+                if (args.length >= 2) {
+                    try { page = Math.max(1, Integer.parseInt(args[1])); } catch (Exception ignored) {}
+                }
+                showPage(src, page);
+            }
             case "view" -> {
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reporthistory view <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
-                if (r == null || r.isOpen()) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
+                if (r == null || r.isOpen()) {
+                    Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
+                    return;
+                }
                 expandClosed(src, r);
             }
             case "reopen" -> {
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reporthistory reopen <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
-                if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
-                if (r.isOpen()) { Text.msg(src, config.msg("already-open","Report #%id% is already open.").replace("%id%", String.valueOf(id))); return; }
+                if (r == null) {
+                    Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
+                    return;
+                }
+                if (r.isOpen()) {
+                    Text.msg(src, config.msg("already-open","Report #%id% is already open.").replace("%id%", String.valueOf(id)));
+                    return;
+                }
                 if (mgr.reopen(id)) {
                     Text.msg(src, config.msg("reopened","Reopened report #%id%").replace("%id%", String.valueOf(id)));
                     plugin.notifier().notifyReopened(r);
@@ -61,8 +76,26 @@ public class ReportHistoryCommand implements SimpleCommand {
         }
     }
 
-    // (helpers unchanged from v2)
-    private void showPage(CommandSource src, int page) { /* ... same as before ... */ 
+    @Override
+    public List<String> suggest(Invocation inv) {
+        String[] a = inv.arguments();
+        if (a.length == 0) {
+            return List.of("page", "view", "reopen");
+        }
+        switch (a[0].toLowerCase()) {
+            case "page" -> {
+                if (a.length == 1) return List.of("1", "2", "3");
+            }
+            case "view", "reopen" -> {
+                var ids = mgr.getClosedReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
+                if (a.length == 1) return ids;
+            }
+            default -> { /* no-op */ }
+        }
+        return List.of();
+    }
+
+    private void showPage(CommandSource src, int page) {
         List<Report> closed = mgr.getClosedReportsDescending();
         if (closed.isEmpty()) { Text.msg(src, config.msg("history-page-empty","No closed reports.")); return; }
 
@@ -87,7 +120,7 @@ public class ReportHistoryCommand implements SimpleCommand {
         Text.msg(src, "<gray>[</gray><aqua><click:run_command:'/reporthistory page "+Math.max(1, page-1)+"'>« Prev</click></aqua><gray>] [</gray><aqua><click:run_command:'/reporthistory page "+Math.min(pages, page+1)+"'>Next »</click></aqua><gray>]</gray>");
     }
 
-    private void expandClosed(CommandSource src, Report r) { /* unchanged */ 
+    private void expandClosed(CommandSource src, Report r) {
         Text.msg(src, config.msg("expanded-header","Report #%id% (%type%/%category%)")
                 .replace("%id%", String.valueOf(r.id))
                 .replace("%type%", r.typeDisplay)
@@ -115,5 +148,7 @@ public class ReportHistoryCommand implements SimpleCommand {
         Text.msg(src, config.msg("history-expanded-actions","[Reopen]").replace("%id%", String.valueOf(r.id)));
     }
 
-    private static long parseLong(String s, long def) { try { return Long.parseLong(s); } catch (Exception e) { return def; } }
+    private static long parseLong(String s, long def) {
+        try { return Long.parseLong(s); } catch (Exception e) { return def; }
+    }
 }
