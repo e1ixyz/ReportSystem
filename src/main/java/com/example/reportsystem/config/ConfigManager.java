@@ -44,6 +44,11 @@ public class ConfigManager {
         pc.staffPermission = get(root, "staff-permission", "reportsystem.reports");
         pc.notifyPermission = get(root, "notify-permission", "reportsystem.notify");
 
+        // NEW: safe preview + public URL
+        pc.previewLines = get(root, "preview-lines", 10);
+        pc.previewLineMaxChars = get(root, "preview-line-max-chars", 200);
+        pc.publicBaseUrl = get(root, "public-base-url", "");
+
         // Discord
         Map<String,Object> d = (Map<String,Object>) root.getOrDefault("discord", Map.of());
         pc.discord.enabled   = get(d, "enabled", false);

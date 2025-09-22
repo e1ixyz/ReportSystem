@@ -1,4 +1,4 @@
-# ReportSystem v2 config
+# ReportSystem v2.1 config
 
 allow-self-report: false
 stack-window-seconds: 600
@@ -8,6 +8,16 @@ html-export-dir: "html-logs"
 reports-per-page: 10
 staff-permission: "reportsystem.reports"
 notify-permission: "reportsystem.notify"
+
+# Chat log viewing safety (added in v2.1)
+# Limits for inline previews to avoid client decode errors.
+preview-lines: 10
+preview-line-max-chars: 200
+
+# Public base URL for exported HTML logs (optional, added in v2.1).
+# If set (http/https), staff will receive a clickable browser link instead of a local file path.
+# Example: "https://reports.example.com"
+public-base-url: ""
 
 discord:
   enabled: false

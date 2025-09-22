@@ -13,6 +13,11 @@ public class PluginConfig {
     public String staffPermission = "reportsystem.reports";
     public String notifyPermission = "reportsystem.notify";
 
+    // NEW: safe preview + public URL options
+    public int previewLines = 10;              // max lines to preview inline
+    public int previewLineMaxChars = 200;      // max chars per preview line
+    public String publicBaseUrl = "";          // e.g. https://reports.example.com
+
     public DiscordConfig discord = new DiscordConfig();
 
     public Map<String, Object> messages = new LinkedHashMap<>();

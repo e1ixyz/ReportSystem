@@ -68,20 +68,36 @@ public class ReportsCommand implements SimpleCommand {
                 Report r = mgr.get(id);
                 if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
                 if (r.chat == null || r.chat.isEmpty()) { Text.msg(src, config.msg("chatlog-none","No chat messages were captured for this report.")); return; }
+
                 if (config.exportHtmlChatlog) {
                     try {
                         Path html = new HtmlExporter(plugin, config).export(r);
-                        String url = "file://" + html.toAbsolutePath();
-                        Text.msg(src, config.msg("chatlog-open-url","Open chat log: %url%").replace("%url%", url));
+                        if (config.publicBaseUrl != null && !config.publicBaseUrl.isBlank()) {
+                            String publicUrl = config.publicBaseUrl.replaceAll("/+$","") + "/" + r.id + "/index.html";
+                            Text.msg(src, "<gray>[</gray><aqua><click:open_url:'" + publicUrl + "'>Open chat log in browser</click></aqua><gray>]</gray>");
+                        } else {
+                            String pathStr = html.toAbsolutePath().toString();
+                            Text.msg(src, "<gray>Saved chat log:</gray> <white>" + Text.escape(pathStr) + "</white>");
+                            Text.msg(src, "<gray>[</gray><aqua><click:suggest_command:'" + Text.escape(pathStr) + "'>copy path</click></aqua><gray>]</gray>");
+                        }
                     } catch (Exception ex) {
-                        Text.msg(src, "<red>Failed to export HTML chat log:</red> <gray>"+ex.getMessage()+"</gray>");
+                        Text.msg(src, "<red>Failed to export HTML chat log:</red> <gray>"+Text.escape(ex.getMessage())+"</gray>");
                     }
                 } else {
-                    Text.msg(src, "<gray>Showing first 20 chat lines for #"+r.id+":</gray>");
-                    int n = Math.min(20, r.chat.size());
+                    Text.msg(src, "<gray>Showing up to "+config.previewLines+" chat lines for #"+r.id+" (truncated):</gray>");
+                    int n = Math.min(Math.max(1, config.previewLines), r.chat.size());
                     for (int i=0;i<n;i++) {
                         var m = r.chat.get(i);
-                        Text.msg(src, "<gray>"+ TimeUtil.formatTime(m.time)+"</gray> <white>"+m.player+"</white><gray>@</gray><white>"+m.server+"</white><gray>:</gray> "+Text.escape(m.message));
+                        String raw = "["+ TimeUtil.formatTime(m.time)+"] "+m.player+"@"+m.server+": "+m.message;
+                        String safe = Text.escape(raw);
+                        if (safe.length() > config.previewLineMaxChars) {
+                            int lim = Math.max(0, config.previewLineMaxChars - 1);
+                            safe = safe.substring(0, lim) + "…";
+                        }
+                        Text.msg(src, "<gray>"+ safe +"</gray>");
+                    }
+                    if (r.chat.size() > n) {
+                        Text.msg(src, "<gray>…and "+(r.chat.size()-n)+" more lines.</gray>");
                     }
                 }
             }
@@ -130,8 +146,40 @@ public class ReportsCommand implements SimpleCommand {
         }
     }
 
-    // (helpers unchanged)
-    private void showPage(CommandSource src, int page) { /* ... unchanged from v2 ... */ 
+    @Override
+    public List<String> suggest(Invocation inv) {
+        String[] a = inv.arguments();
+        if (a.length == 0) {
+            return List.of("page", "view", "close", "chat", "assign", "unassign", "search", "reload");
+        }
+        switch (a[0].toLowerCase()) {
+            case "page" -> {
+                if (a.length == 1) return List.of("1", "2", "3");
+            }
+            case "view", "close", "chat", "unassign" -> {
+                var ids = mgr.getOpenReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
+                if (a.length == 1) return ids;
+            }
+            case "assign" -> {
+                if (a.length == 1) {
+                    return mgr.getOpenReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
+                } else if (a.length == 2) {
+                    return mgr.getOpenReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
+                } else if (a.length == 3) {
+                    return plugin.proxy().getAllPlayers().stream().map(Player::getUsername).toList();
+                }
+            }
+            case "search" -> {
+                if (a.length == 1) return List.of("<query>");
+                if (a.length == 2) return List.of("open", "closed", "all");
+            }
+            case "reload" -> { /* no args */ }
+            default -> { /* no-op */ }
+        }
+        return List.of();
+    }
+
+    private void showPage(CommandSource src, int page) {
         List<Report> open = mgr.getOpenReportsDescending();
         if (open.isEmpty()) { Text.msg(src, config.msg("page-empty","No open reports.")); return; }
 
@@ -158,7 +206,7 @@ public class ReportsCommand implements SimpleCommand {
         src.sendMessage(nav);
     }
 
-    private void expand(CommandSource src, Report r) { /* unchanged from v2 */ 
+    private void expand(CommandSource src, Report r) {
         Text.msg(src, config.msg("expanded-header","Report #%id% (%type%/%category%)")
                 .replace("%id%", String.valueOf(r.id))
                 .replace("%type%", r.typeDisplay)
