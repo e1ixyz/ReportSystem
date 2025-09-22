@@ -12,7 +12,7 @@ import com.velocitypowered.api.command.CommandManager;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.plugin.Plugin;
-import com.velocitypowered.api.plugin.annotation.DataDirectory;  // <-- add this
+import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import org.slf4j.Logger;
 
@@ -29,7 +29,9 @@ public final class ReportSystem {
 
     private final ProxyServer proxy;
     private final Logger logger;
-    private final Path dataDir;
+
+    // Injected separately to avoid the “plain Path” binding mismatch
+    private Path dataDir;
 
     private PluginConfig config;
     private ConfigManager configManager;
@@ -37,9 +39,14 @@ public final class ReportSystem {
     private ChatLogService chatLogService;
 
     @Inject
-    public ReportSystem(ProxyServer proxy, Logger logger, @DataDirectory Path dataDirectory) { // <-- annotate here
+    public ReportSystem(ProxyServer proxy, Logger logger) {
         this.proxy = proxy;
         this.logger = logger;
+    }
+
+    // Guice will call this and supply the bound @DataDirectory Path
+    @Inject
+    public void injectDataDir(@DataDirectory Path dataDirectory) {
         this.dataDir = dataDirectory;
     }
 
