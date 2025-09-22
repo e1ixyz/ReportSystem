@@ -12,6 +12,7 @@ import com.velocitypowered.api.command.CommandManager;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.annotation.DataDirectory;  // <-- add this
 import com.velocitypowered.api.proxy.ProxyServer;
 import org.slf4j.Logger;
 
@@ -36,7 +37,7 @@ public final class ReportSystem {
     private ChatLogService chatLogService;
 
     @Inject
-    public ReportSystem(ProxyServer proxy, Logger logger, Path dataDirectory) {
+    public ReportSystem(ProxyServer proxy, Logger logger, @DataDirectory Path dataDirectory) { // <-- annotate here
         this.proxy = proxy;
         this.logger = logger;
         this.dataDir = dataDirectory;
