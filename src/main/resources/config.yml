@@ -1,0 +1,62 @@
+# ReportSystem config
+
+# Whether users can report themselves
+allow-self-report: false
+
+# Seconds: if multiple reports arrive for the same target & type within this window, they stack.
+stack-window-seconds: 600  # 10 minutes
+
+# Whether to also export a static HTML log for chat reports (openable via URL)
+export-html-chatlog: true
+
+# Where HTML exports are written (under plugin data folder). A folder per report id is created.
+html-export-dir: "html-logs"
+
+# Max reports per page in /reports
+reports-per-page: 10
+
+# Permission for staff report menu
+staff-permission: "reportsystem.reports"
+
+# Message templates (MiniMessage). Supports %player% and %target% replacements where applicable.
+messages:
+  prefix: "<gray>[<aqua>ReportSystem</aqua>]</gray> "
+  no-permission: "<red>You don't have permission.</red>"
+  usage-report: "<yellow>Usage:</yellow> /report <type> <category> <target|reason...> <reason...>"
+  invalid-type: "<red>Unknown report type:</red> <white>%type%</white>"
+  invalid-category: "<red>Unknown category:</red> <white>%category%</white>"
+  self-report-denied: "<red>You cannot report yourself.</red>"
+  player-not-found: "<red>Player not found:</red> <white>%target%</white>"
+  report-filed: "<green>Report filed!</green> <gray>(ID:</gray> <white>#%id%</white><gray>)</gray>"
+  report-stacked: "<green>Report stacked</green> into <white>#%id%</white> <gray>(now x%count%)</gray>"
+  open-count: "<gray>Open reports:</gray> <white>%count%</white>"
+  page-header: "<gray>Reports Page</gray> <white>%page%</white><gray>/<white>%pages%</white></gray>"
+  page-empty: "<yellow>No open reports.</yellow>"
+  expanded-header: "<aqua>Report #%id%</aqua> <gray>(%type% / %category%)</gray>"
+  expanded-lines:
+    - "<gray>Reported:</gray> <white>%target%</white> <gray>by</gray> <white>%player%</white>"
+    - "<gray>When:</gray> <white>%timestamp%</white>"
+    - "<gray>Count:</gray> <white>%count%</white>"
+    - "<gray>Reason(s):</gray> <white>%reasons%</white>"
+    - "<gray>Status:</gray> <white>%status%</white>"
+  expanded-actions: "<gray>[</gray><green><click:run_command:'/reports close %id%'>Close</click></green><gray>] [</gray><aqua><click:run_command:'/reports chat %id%'>Chat Logs</click></aqua><gray>]</gray>"
+  closed: "<green>Closed report #</green><white>%id%</white><gray>.</gray>"
+  not-found: "<red>No such report:</red> <white>#%id%</white>"
+  chatlog-none: "<yellow>No chat messages were captured for this report.</yellow>"
+  chatlog-open-url: "<gray>Open chat log:</gray> <click:open_url:'%url%'><underlined><aqua>%url%</aqua></underlined></click>"
+
+# Dynamic report types and categories.
+# Keys are "type-ids" players will use in /report <type> <category> ...
+# Each type defines a set of categories (id -> display name).
+# Add more types/categories at will; tab completion updates live on reload.
+report-types:
+  player:
+    display: "Player"
+    categories:
+      chat: "Chat Report"
+      cheating: "Cheating Report"
+  bug:
+    display: "Bug"
+    categories:
+      network: "Network Bug"
+      server: "Server Bug"

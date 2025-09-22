@@ -1,0 +1,157 @@
+package com.example.reportsystem.commands;
+
+import com.example.reportsystem.ReportSystem;
+import com.example.reportsystem.config.PluginConfig;
+import com.example.reportsystem.model.Report;
+import com.example.reportsystem.service.HtmlExporter;
+import com.example.reportsystem.service.ReportManager;
+import com.example.reportsystem.util.Pagination;
+import com.example.reportsystem.util.Text;
+import com.example.reportsystem.util.TimeUtil;
+import com.velocitypowered.api.command.CommandSource;
+import com.velocitypowered.api.command.SimpleCommand;
+import net.kyori.adventure.text.Component;
+
+import java.nio.file.Path;
+import java.util.List;
+
+public class ReportsCommand implements SimpleCommand {
+
+    private final ReportSystem plugin;
+    private final ReportManager mgr;
+    private PluginConfig config;
+
+    public ReportsCommand(ReportSystem plugin, ReportManager mgr, PluginConfig config) {
+        this.plugin = plugin;
+        this.mgr = mgr;
+        this.config = config;
+    }
+
+    @Override
+    public void execute(Invocation inv) {
+        CommandSource src = inv.source();
+        if (!src.hasPermission(config.staffPermission)) {
+            Text.msg(src, config.msg("no-permission","You don't have permission."));
+            return;
+        }
+
+        String[] args = inv.arguments();
+        if (args.length == 0) {
+            showPage(src, 1);
+            return;
+        }
+
+        switch (args[0].toLowerCase()) {
+            case "page" -> {
+                int page = 1;
+                if (args.length >= 2) {
+                    try { page = Math.max(1, Integer.parseInt(args[1])); } catch (Exception ignored) {}
+                }
+                showPage(src, page);
+            }
+            case "view" -> {
+                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports view <id>"); return; }
+                long id = parseLong(args[1], -1);
+                if (id <= 0) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
+                Report r = mgr.get(id);
+                if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", String.valueOf(id))); return; }
+                expand(src, r);
+            }
+            case "close" -> {
+                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports close <id>"); return; }
+                long id = parseLong(args[1], -1);
+                if (id <= 0 || mgr.get(id) == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
+                mgr.close(id);
+                mgr.save();
+                Text.msg(src, config.msg("closed","Closed report #%id%").replace("%id%", String.valueOf(id)));
+            }
+            case "chat" -> {
+                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports chat <id>"); return; }
+                long id = parseLong(args[1], -1);
+                Report r = mgr.get(id);
+                if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
+                if (r.chat == null || r.chat.isEmpty()) {
+                    Text.msg(src, config.msg("chatlog-none","No chat messages were captured for this report."));
+                    return;
+                }
+                if (config.exportHtmlChatlog) {
+                    try {
+                        Path html = new HtmlExporter(plugin, config).export(r);
+                        String url = "file://" + html.toAbsolutePath();
+                        Text.msg(src, config.msg("chatlog-open-url","Open chat log: %url%").replace("%url%", url));
+                    } catch (Exception ex) {
+                        Text.msg(src, "<red>Failed to export HTML chat log:</red> <gray>"+ex.getMessage()+"</gray>");
+                    }
+                } else {
+                    // Inline dump first 20 lines
+                    Text.msg(src, "<gray>Showing first 20 chat lines for #"+r.id+":</gray>");
+                    int n = Math.min(20, r.chat.size());
+                    for (int i=0;i<n;i++) {
+                        var m = r.chat.get(i);
+                        Text.msg(src, "<gray>"+ TimeUtil.formatTime(m.time)+"</gray> <white>"+m.player+"</white><gray>@</gray><white>"+m.server+"</white><gray>:</gray> "+Text.escape(m.message));
+                    }
+                }
+            }
+            default -> showPage(src, 1);
+        }
+    }
+
+    private void showPage(CommandSource src, int page) {
+        List<Report> open = mgr.getOpenReportsDescending();
+        if (open.isEmpty()) {
+            Text.msg(src, config.msg("page-empty","No open reports."));
+            return;
+        }
+        int per = Math.max(1, config.reportsPerPage);
+        int pages = Math.max(1, (int) Math.ceil(open.size() / (double) per));
+        page = Math.min(page, pages);
+
+        Text.msg(src, config.msg("page-header","Reports Page %page%/%pages%")
+                .replace("%page%", String.valueOf(page))
+                .replace("%pages%", String.valueOf(pages)));
+
+        Pagination.paginate(open, per, page).forEach(r -> {
+            // e.g. "#12 Player(Chat) reportedPlayer [expand]"
+            String stacked = r.count > 1 ? " <gray>(x"+r.count+")</gray>" : "";
+            String line = "<white>#"+r.id+"</white> "
+                    + "<gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray> "
+                    + "<white>"+r.reported+"</white>"
+                    + stacked
+                    + "  <gray>[</gray><aqua><click:run_command:'/reports view "+r.id+"'>expand</click></aqua><gray>]</gray>";
+            Text.msg(src, line);
+        });
+
+        Component nav = Text.mm("<gray>[</gray><aqua><click:run_command:'/reports page "+Math.max(1, page-1)+"'>« Prev</click></aqua><gray>] [</gray><aqua><click:run_command:'/reports page "+Math.min(pages, page+1)+"'>Next »</click></aqua><gray>]</gray>");
+        src.sendMessage(nav);
+    }
+
+    private void expand(CommandSource src, Report r) {
+        Text.msg(src, config.msg("expanded-header","Report #%id% (%type%/%category%)")
+                .replace("%id%", String.valueOf(r.id))
+                .replace("%type%", r.typeDisplay)
+                .replace("%category%", r.categoryDisplay));
+
+        for (String line : config.msgList("expanded-lines", List.of(
+                "<gray>Reported:</gray> <white>%target%</white> <gray>by</gray> <white>%player%</white>",
+                "<gray>When:</gray> <white>%timestamp%</white>",
+                "<gray>Count:</gray> <white>%count%</white>",
+                "<gray>Reason(s):</gray> <white>%reasons%</white>",
+                "<gray>Status:</gray> <white>%status%</white>"
+        ))) {
+            String out = line
+                    .replace("%player%", Text.escape(r.reporter))
+                    .replace("%target%", Text.escape(r.reported))
+                    .replace("%timestamp%", TimeUtil.formatDateTime(r.timestamp))
+                    .replace("%count%", String.valueOf(r.count))
+                    .replace("%reasons%", Text.escape(r.reason))
+                    .replace("%status%", r.status.name());
+            Text.msg(src, out);
+        }
+
+        Text.msg(src, config.msg("expanded-actions","[Close] [Chat Logs]").replace("%id%", String.valueOf(r.id)));
+    }
+
+    private static long parseLong(String s, long def) {
+        try { return Long.parseLong(s); } catch (Exception e) { return def; }
+    }
+}
