@@ -21,13 +21,8 @@ public class HtmlExporter {
         this.config = config;
     }
 
-    /** Exports to: <dataDir>/<htmlExportDir>/<id>/index.html */
     public Path export(Report r) throws IOException {
-        Path out = plugin
-                .dataDir()
-                .resolve(config.htmlExportDir)
-                .resolve(String.valueOf(r.id))
-                .resolve("index.html");
+        Path out = plugin.dataDir().resolve(config.htmlExportDir).resolve(String.valueOf(r.id)).resolve("index.html");
         Files.createDirectories(out.getParent());
 
         try (Writer w = Files.newBufferedWriter(out)) {
@@ -54,7 +49,7 @@ public class HtmlExporter {
 <h1>Report #%ID% — %TYPE% / %CAT%</h1>
 <div class="meta">
   <div><b>Reported:</b> %REPORTED% &nbsp; <b>By:</b> %REPORTER%</div>
-  <div><b>Created:</b> %WHEN% &nbsp; <b>Count:</b> %COUNT% &nbsp; <b>Status:</b> %STATUS%</div>
+  <div><b>Created:</b> %WHEN% &nbsp; <b>Count:</b> %COUNT% &nbsp; <b>Status:</b> %STATUS% &nbsp; <b>Assignee:</b> %ASSIGNEE%</div>
 </div>
 <div id="log">
 %ROWS%
@@ -69,6 +64,7 @@ public class HtmlExporter {
     .replace("%WHEN%", TimeUtil.formatDateTime(r.timestamp))
     .replace("%COUNT%", String.valueOf(r.count))
     .replace("%STATUS%", r.status.name())
+    .replace("%ASSIGNEE%", r.assignee == null ? "—" : safe(r.assignee))
     .replace("%ROWS%", buildRows(r)));
         }
         return out;
@@ -91,9 +87,6 @@ public class HtmlExporter {
     }
 
     private static String safe(String s) {
-        return s == null ? "" : s
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
+        return s == null ? "" : s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");
     }
 }

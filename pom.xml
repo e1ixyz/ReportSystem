@@ -5,35 +5,25 @@
 
   <groupId>com.example</groupId>
   <artifactId>reportsystem</artifactId>
-  <version>1.0.0</version>
+  <version>2.1.0</version>
   <name>ReportSystem</name>
   <description>Proxy-side report &amp; chat-log system for Velocity</description>
 
-    <properties>
+  <properties>
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <velocity.api.version>3.1.0</velocity.api.version>
-    </properties>
-
+  </properties>
 
   <repositories>
     <repository>
       <id>paper-repo</id>
       <url>https://repo.papermc.io/repository/maven-public/</url>
     </repository>
-    <repository>
-      <id>sonatype</id>
-      <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
-    </repository>
-    <repository>
-      <id>jitpack.io</id>
-      <url>https://jitpack.io</url>
-    </repository>
   </repositories>
 
   <dependencies>
-    <!-- Velocity API (provided by server) -->
     <dependency>
       <groupId>com.velocitypowered</groupId>
       <artifactId>velocity-api</artifactId>
@@ -41,7 +31,6 @@
       <scope>provided</scope>
     </dependency>
 
-    <!-- SLF4J API (Velocity provides an implementation at runtime) -->
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
@@ -49,32 +38,35 @@
       <scope>provided</scope>
     </dependency>
 
-    <!-- Adventure MiniMessage (compile-only convenience) -->
     <dependency>
       <groupId>net.kyori</groupId>
       <artifactId>adventure-text-minimessage</artifactId>
       <version>4.17.0</version>
-      <scope>compile</scope>
     </dependency>
 
-    <!-- Gson -->
     <dependency>
       <groupId>com.google.code.gson</groupId>
       <artifactId>gson</artifactId>
       <version>2.11.0</version>
     </dependency>
 
-    <!-- SnakeYAML -->
     <dependency>
       <groupId>org.yaml</groupId>
       <artifactId>snakeyaml</artifactId>
       <version>2.2</version>
     </dependency>
+
+    <!-- Brigadier for compile-time (Velocity provides at runtime) -->
+    <dependency>
+      <groupId>com.mojang</groupId>
+      <artifactId>brigadier</artifactId>
+      <version>1.0.18</version>
+      <scope>provided</scope>
+    </dependency>
   </dependencies>
 
   <build>
     <plugins>
-      <!-- Shade into one fat jar -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>

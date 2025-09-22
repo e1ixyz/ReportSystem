@@ -22,7 +22,6 @@ public class Text {
 
     public static String escape(String s) {
         if (s == null) return "";
-        // very light escaping for MiniMessage
         return s.replace("<", "&lt;").replace(">", "&gt;");
     }
 }

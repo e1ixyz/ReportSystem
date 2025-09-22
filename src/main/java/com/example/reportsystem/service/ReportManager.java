@@ -6,7 +6,6 @@ import com.example.reportsystem.model.ChatMessage;
 import com.example.reportsystem.model.Report;
 import com.example.reportsystem.model.ReportStatus;
 import com.example.reportsystem.model.ReportType;
-import com.example.reportsystem.util.TimeUtil;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -68,11 +67,33 @@ public class ReportManager {
         }
     }
 
+    public synchronized boolean reopen(long id) {
+        Report r = reports.get(id);
+        if (r == null || r.status == ReportStatus.OPEN) return false;
+        r.status = ReportStatus.OPEN;
+        save();
+        return true;
+    }
+
+    public synchronized boolean assign(long id, String staff) {
+        Report r = reports.get(id);
+        if (r == null) return false;
+        r.assignee = staff;
+        save();
+        return true;
+    }
+
+    public synchronized boolean unassign(long id) {
+        Report r = reports.get(id);
+        if (r == null) return false;
+        r.assignee = null;
+        save();
+        return true;
+    }
+
     public synchronized void appendChat(long reportId, ChatMessage msg) {
         Report r = reports.get(reportId);
-        if (r != null) {
-            r.chat.add(msg);
-        }
+        if (r != null) r.chat.add(msg);
     }
 
     public List<Report> getOpenReportsDescending() {
@@ -82,7 +103,33 @@ public class ReportManager {
                 .collect(Collectors.toList());
     }
 
+    public List<Report> getClosedReportsDescending() {
+        return reports.values().stream()
+                .filter(r -> r.status == ReportStatus.CLOSED)
+                .sorted(Comparator.comparingLong((Report r) -> r.timestamp).reversed())
+                .collect(Collectors.toList());
+    }
+
     public Report get(long id) { return reports.get(id); }
+
+    /** Simple case-insensitive search on id/targets/reason/type/category/assignee */
+    public List<Report> search(String query, String scope) {
+        String q = query.toLowerCase(Locale.ROOT).trim();
+        var base = switch (scope.toLowerCase(Locale.ROOT)) {
+            case "closed" -> getClosedReportsDescending();
+            case "all" -> reports.values().stream().sorted(Comparator.comparingLong((Report r) -> r.timestamp).reversed()).toList();
+            default -> getOpenReportsDescending();
+        };
+        return base.stream().filter(r ->
+            String.valueOf(r.id).contains(q) ||
+            r.reported.toLowerCase().contains(q) ||
+            r.reporter.toLowerCase().contains(q) ||
+            (r.reason != null && r.reason.toLowerCase().contains(q)) ||
+            r.typeDisplay.toLowerCase().contains(q) ||
+            r.categoryDisplay.toLowerCase().contains(q) ||
+            (r.assignee != null && r.assignee.toLowerCase().contains(q))
+        ).toList();
+    }
 
     public synchronized void save() {
         try {
@@ -98,10 +145,10 @@ public class ReportManager {
         }
     }
 
+    @SuppressWarnings("unchecked")
     private synchronized void load() {
         if (!Files.exists(storePath)) return;
         try (Reader r = Files.newBufferedReader(storePath)) {
-            @SuppressWarnings("unchecked")
             Map<String,Object> root = GSON.fromJson(r, Map.class);
             Number nNext = (Number) root.getOrDefault("nextId", 1.0);
             this.nextId = nNext.longValue();
@@ -128,7 +175,6 @@ public class ReportManager {
     public List<String> typeIds() {
         return new ArrayList<>(config.reportTypes.keySet());
     }
-
     public List<String> categoryIdsFor(String typeId) {
         var t = config.reportTypes.get(typeId.toLowerCase());
         if (t == null) return List.of();

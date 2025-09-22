@@ -1,10 +1,13 @@
 package com.example.reportsystem;
 
+import com.example.reportsystem.commands.CommandTrees;
 import com.example.reportsystem.commands.ReportCommand;
+import com.example.reportsystem.commands.ReportHistoryCommand;
 import com.example.reportsystem.commands.ReportsCommand;
 import com.example.reportsystem.config.ConfigManager;
 import com.example.reportsystem.config.PluginConfig;
 import com.example.reportsystem.service.ChatLogService;
+import com.example.reportsystem.service.Notifier;
 import com.example.reportsystem.service.ReportManager;
 import com.example.reportsystem.util.Text;
 import com.google.inject.Inject;
@@ -21,21 +24,21 @@ import java.nio.file.Path;
 @Plugin(
     id = "reportsystem",
     name = "ReportSystem",
-    version = "1.0.0",
+    version = "2.1.0",
     authors = {"yourname"},
-    description = "Dynamic report system with stacking and chat logs."
+    description = "Dynamic report system with stacking, search, assignees, Brigadier, Discord webhooks, and chat logs."
 )
 public final class ReportSystem {
 
     private final ProxyServer proxy;
     private final Logger logger;
-
     private Path dataDir;
 
     private PluginConfig config;
     private ConfigManager configManager;
     private ReportManager reportManager;
     private ChatLogService chatLogService;
+    private Notifier notifier;
 
     @Inject
     public ReportSystem(ProxyServer proxy, Logger logger) {
@@ -59,12 +62,17 @@ public final class ReportSystem {
 
         this.reportManager = new ReportManager(this, dataDir, config);
         this.chatLogService = new ChatLogService(this, reportManager, config);
-
+        this.notifier = new Notifier(this, config);
         proxy.getEventManager().register(this, chatLogService);
 
+        // Core commands (SimpleCommand logic)
         CommandManager cm = proxy.getCommandManager();
         cm.register(cm.metaBuilder("report").build(), new ReportCommand(this, reportManager, chatLogService, config));
         cm.register(cm.metaBuilder("reports").build(), new ReportsCommand(this, reportManager, config));
+        cm.register(cm.metaBuilder("reporthistory").build(), new ReportHistoryCommand(this, reportManager, config));
+
+        // Brigadier trees for rich tab completion
+        CommandTrees.registerAll(this, cm, reportManager, config);
 
         logger.info("ReportSystem initialized. Data dir: {}", dataDir.toAbsolutePath());
     }
@@ -76,13 +84,17 @@ public final class ReportSystem {
     public ConfigManager configManager() { return configManager; }
     public ReportManager reportManager() { return reportManager; }
     public ChatLogService chatLogService() { return chatLogService; }
+    public Notifier notifier() { return notifier; }
 
     public void reload() {
         try {
             this.config = configManager.loadOrCreate();
             reportManager.setConfig(config);
             chatLogService.setConfig(config);
+            notifier.setConfig(config);
             Text.reloadMiniMessage();
+            // refresh Brigadier dynamic suggestions
+            CommandTrees.registerAll(this, proxy.getCommandManager(), reportManager, config);
             logger.info("ReportSystem reloaded.");
         } catch (Exception ex) {
             logger.error("Reload failed", ex);

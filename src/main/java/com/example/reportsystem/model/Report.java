@@ -4,19 +4,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Report {
-    public long id;                  // unique id
-    public String reporter;          // player name
-    public String reported;          // target (player or string for bug)
+    public long id;
+    public String reporter;
+    public String reported;
     public String typeId;
     public String typeDisplay;
     public String categoryId;
     public String categoryDisplay;
-    public String reason;            // initial reason
-    public long timestamp;           // created
-    public int count;                // stacked count
+    public String reason;
+    public long timestamp;
+    public int count;
     public ReportStatus status = ReportStatus.OPEN;
 
-    // Collected chat messages (only for relevant types, e.g., chat report)
+    /** Optional assignee username (staff) */
+    public String assignee = null;
+
+    /** Chat messages captured for chat reports */
     public List<ChatMessage> chat = new ArrayList<>();
 
     public Report() {}

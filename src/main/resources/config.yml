@@ -1,24 +1,21 @@
-# ReportSystem config
+# ReportSystem v2 config
 
-# Whether users can report themselves
 allow-self-report: false
-
-# Seconds: if multiple reports arrive for the same target & type within this window, they stack.
-stack-window-seconds: 600  # 10 minutes
-
-# Whether to also export a static HTML log for chat reports (openable via URL)
+stack-window-seconds: 600
 export-html-chatlog: true
-
-# Where HTML exports are written (under plugin data folder). A folder per report id is created.
 html-export-dir: "html-logs"
 
-# Max reports per page in /reports
 reports-per-page: 10
-
-# Permission for staff report menu
 staff-permission: "reportsystem.reports"
+notify-permission: "reportsystem.notify"
 
-# Message templates (MiniMessage). Supports %player% and %target% replacements where applicable.
+discord:
+  enabled: false
+  webhook-url: "https://discord.com/api/webhooks/put-yours-here"
+  username: "ReportSystem"
+  avatar-url: ""
+  timeout-ms: 4000
+
 messages:
   prefix: "<gray>[<aqua>ReportSystem</aqua>]</gray> "
   no-permission: "<red>You don't have permission.</red>"
@@ -39,16 +36,28 @@ messages:
     - "<gray>Count:</gray> <white>%count%</white>"
     - "<gray>Reason(s):</gray> <white>%reasons%</white>"
     - "<gray>Status:</gray> <white>%status%</white>"
+    - "<gray>Assignee:</gray> <white>%assignee%</white>"
   expanded-actions: "<gray>[</gray><green><click:run_command:'/reports close %id%'>Close</click></green><gray>] [</gray><aqua><click:run_command:'/reports chat %id%'>Chat Logs</click></aqua><gray>]</gray>"
   closed: "<green>Closed report #</green><white>%id%</white><gray>.</gray>"
   not-found: "<red>No such report:</red> <white>#%id%</white>"
   chatlog-none: "<yellow>No chat messages were captured for this report.</yellow>"
   chatlog-open-url: "<gray>Open chat log:</gray> <click:open_url:'%url%'><underlined><aqua>%url%</aqua></underlined></click>"
+  reloaded: "<green>ReportSystem reloaded.</green>"
 
-# Dynamic report types and categories.
-# Keys are "type-ids" players will use in /report <type> <category> ...
-# Each type defines a set of categories (id -> display name).
-# Add more types/categories at will; tab completion updates live on reload.
+  # History (closed)
+  history-page-header: "<gray>Closed Reports Page</gray> <white>%page%</white><gray>/<white>%pages%</white></gray>"
+  history-page-empty: "<yellow>No closed reports.</yellow>"
+  reopened: "<green>Reopened report #</green><white>%id%</white><gray>.</gray>"
+  already-open: "<yellow>Report #</yellow><white>%id%</white><yellow> is already open.</yellow>"
+  history-expanded-actions: "<gray>[</gray><green><click:run_command:'/reporthistory reopen %id%'>Reopen</click></green><gray>]</gray>"
+
+  # Assign / Search
+  assigned: "<green>Assigned report #</green><white>%id%</white><green> to </green><white>%assignee%</white><gray>.</gray>"
+  unassigned: "<green>Unassigned report #</green><white>%id%</white><gray>.</gray>"
+  search-header: "<gray>Search:</gray> <white>%query%</white> <gray>(%scope%)</gray>"
+  search-empty: "<yellow>No matching reports.</yellow>"
+
+# Dynamic report types and categories
 report-types:
   player:
     display: "Player"
