@@ -30,7 +30,6 @@ public final class ReportSystem {
     private final ProxyServer proxy;
     private final Logger logger;
 
-    // Injected separately to avoid the “plain Path” binding mismatch
     private Path dataDir;
 
     private PluginConfig config;
@@ -44,7 +43,6 @@ public final class ReportSystem {
         this.logger = logger;
     }
 
-    // Guice will call this and supply the bound @DataDirectory Path
     @Inject
     public void injectDataDir(@DataDirectory Path dataDirectory) {
         this.dataDir = dataDirectory;
