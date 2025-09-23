@@ -1,0 +1,231 @@
+package com.example.reportsystem.service;
+
+import com.example.reportsystem.config.PluginConfig;
+import org.slf4j.Logger;
+
+import com.sun.net.httpserver.Headers;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+
+import java.io.*;
+import java.net.InetSocketAddress;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.util.*;
+import java.util.stream.Stream;
+
+public class WebServer {
+    private final PluginConfig cfg;
+    private final Logger log;
+    private final Path root;             // html-logs dir
+    private final AuthService auth;
+    private HttpServer http;
+
+    public WebServer(PluginConfig cfg, Logger log, Path root, AuthService auth) {
+        this.cfg = cfg; this.log = log; this.root = root; this.auth = auth;
+    }
+
+    public void start() throws IOException {
+        if (!cfg.httpServer.enabled) return;
+        InetSocketAddress addr = new InetSocketAddress(cfg.httpServer.bind, cfg.httpServer.port);
+        http = HttpServer.create(addr, 0);
+
+        // Public endpoints
+        http.createContext("/login", this::handleLogin);          // GET form / POST code
+        http.createContext("/logout", this::handleLogout);
+
+        // Everything else is protected
+        http.createContext("/", this::handleProtectedStatic);
+
+        http.setExecutor(null);
+        http.start();
+        log.info("HTTP server started on {}:{} serving {}", cfg.httpServer.bind, cfg.httpServer.port, root);
+    }
+
+    public void stop() {
+        if (http != null) {
+            http.stop(0);
+            http = null;
+            log.info("HTTP server stopped.");
+        }
+    }
+
+    /* ----------------- handlers ----------------- */
+
+    private void handleLogin(HttpExchange ex) throws IOException {
+        if ("GET".equalsIgnoreCase(ex.getRequestMethod())) {
+            respondHtml(ex, 200, loginForm(null));
+            return;
+        }
+        if ("POST".equalsIgnoreCase(ex.getRequestMethod())) {
+            Map<String, String> form = parseForm(ex);
+            String code = form.getOrDefault("code", "").trim();
+            String who  = form.getOrDefault("name", "").trim();
+            String sid = auth.redeemCode(code, who);
+            if (sid == null || !auth.looksSigned(sid)) {
+                respondHtml(ex, 401, loginForm("Invalid or expired code."));
+                return;
+            }
+            // set cookie and redirect to /
+            Headers h = ex.getResponseHeaders();
+            h.add("Set-Cookie", cookie(cfg.auth.cookieName, sid, cfg.auth.sessionTtlMinutes));
+            h.add("Location", "/");
+            ex.sendResponseHeaders(302, -1);
+            ex.close();
+            return;
+        }
+        sendStatus(ex, 405, "Method Not Allowed");
+    }
+
+    private void handleLogout(HttpExchange ex) throws IOException {
+        String sid = readCookie(ex, cfg.auth.cookieName);
+        if (sid != null) auth.revoke(sid);
+        Headers h = ex.getResponseHeaders();
+        h.add("Set-Cookie", cfg.auth.cookieName + "=; Max-Age=0; Path=/; SameSite=Lax; HttpOnly");
+        h.add("Location", "/login");
+        ex.sendResponseHeaders(302, -1);
+        ex.close();
+    }
+
+    private void handleProtectedStatic(HttpExchange ex) throws IOException {
+        // Allow open paths (login page, favicon, etc.)
+        String path = ex.getRequestURI().getPath();
+        if (isOpen(path)) { serveStatic(ex, path); return; }
+
+        // Gate: must have a valid session
+        String sid = readCookie(ex, cfg.auth.cookieName);
+        var session = (cfg.auth.enabled) ? auth.validate(sid) : null;
+
+        if (cfg.auth.enabled && session == null) {
+            // not signed in -> redirect to login
+            Headers h = ex.getResponseHeaders();
+            h.add("Location", "/login");
+            ex.sendResponseHeaders(302, -1);
+            ex.close();
+            return;
+        }
+        // Serve the static file from html-logs
+        serveStatic(ex, path);
+    }
+
+    /* ----------------- helpers ----------------- */
+
+    private boolean isOpen(String path) {
+        if (!cfg.auth.enabled) return true;
+        for (String p : cfg.auth.openPaths) {
+            if (path.equals(p) || path.startsWith(p)) return true;
+        }
+        return false;
+    }
+
+    private void serveStatic(HttpExchange ex, String path) throws IOException {
+        String decoded = URLDecoder.decode(path, StandardCharsets.UTF_8);
+        if (decoded.equals("/")) decoded = "/index.html"; // optional landing page
+        Path target = safeResolve(decoded);
+        if (target == null || !Files.exists(target) || !Files.isRegularFile(target)) {
+            sendStatus(ex, 404, "Not Found");
+            return;
+        }
+        Headers h = ex.getResponseHeaders();
+        h.add("Content-Type", mime(target));
+        h.add("Cache-Control", "no-store");
+        long len = Files.size(target);
+        ex.sendResponseHeaders(200, len);
+        try (OutputStream os = ex.getResponseBody()) {
+            Files.copy(target, os);
+        }
+    }
+
+    private Path safeResolve(String uriPath) {
+        // prevent path traversal
+        Path p = root.resolve(uriPath.substring(1)).normalize();
+        if (!p.startsWith(root)) return null;
+        return p;
+    }
+
+    private static String mime(Path p) {
+        String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".html") || name.endsWith(".htm")) return "text/html; charset=utf-8";
+        if (name.endsWith(".json")) return "application/json; charset=utf-8";
+        if (name.endsWith(".css")) return "text/css; charset=utf-8";
+        if (name.endsWith(".js")) return "application/javascript; charset=utf-8";
+        if (name.endsWith(".png")) return "image/png";
+        if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+        if (name.endsWith(".svg")) return "image/svg+xml";
+        return "application/octet-stream";
+    }
+
+    private Map<String, String> parseForm(HttpExchange ex) throws IOException {
+        String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        Map<String, String> out = new HashMap<>();
+        for (String kv : body.split("&")) {
+            int i = kv.indexOf('=');
+            if (i <= 0) continue;
+            String k = URLDecoder.decode(kv.substring(0, i), StandardCharsets.UTF_8);
+            String v = URLDecoder.decode(kv.substring(i + 1), StandardCharsets.UTF_8);
+            out.put(k, v);
+        }
+        return out;
+    }
+
+    private String readCookie(HttpExchange ex, String name) {
+        List<String> cookies = ex.getRequestHeaders().getOrDefault("Cookie", List.of());
+        for (String line : cookies) {
+            for (String c : line.split(";")) {
+                String[] kv = c.trim().split("=", 2);
+                if (kv.length == 2 && kv[0].equals(name)) return kv[1];
+            }
+        }
+        return null;
+    }
+
+    private String cookie(String name, String value, int ttlMinutes) {
+        int maxAge = Math.max(60, ttlMinutes * 60);
+        return name + "=" + value + "; Max-Age=" + maxAge + "; Path=/; SameSite=Lax; HttpOnly";
+    }
+
+    private void respondHtml(HttpExchange ex, int code, String html) throws IOException {
+        byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+        Headers h = ex.getResponseHeaders();
+        h.add("Content-Type", "text/html; charset=utf-8");
+        h.add("Cache-Control", "no-store");
+        ex.sendResponseHeaders(code, bytes.length);
+        try (OutputStream os = ex.getResponseBody()) { os.write(bytes); }
+    }
+
+    private String loginForm(String error) {
+        String err = (error == null) ? "" : "<div style='color:#c33;margin-bottom:10px;'>" + escape(error) + "</div>";
+        return """
+        <!doctype html>
+        <html><head><meta charset="utf-8"><title>ReportSystem Login</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+        body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;background:#0f1115;color:#e6e6e6;display:flex;min-height:100vh;align-items:center;justify-content:center}
+        .card{background:#151924;border:1px solid #252b3a;border-radius:14px;padding:22px;max-width:420px;width:92%}
+        label{display:block;margin:8px 0 4px;color:#aab; font-size:14px}
+        input{width:100%;padding:10px;border-radius:10px;border:1px solid #3a4157;background:#0f1320;color:#fff}
+        button{margin-top:14px;width:100%;padding:10px 12px;border-radius:10px;background:#2563eb;border:0;color:#fff;font-weight:600;cursor:pointer}
+        a{color:#9cf}
+        </style></head>
+        <body><div class="card">
+          <h2>ReportSystem Login</h2>
+          %s
+          <p>Run <code>/reports auth</code> in-game to get a one-time code.</p>
+          <form method="post" action="/login">
+            <label for="name">Minecraft Name (optional)</label>
+            <input id="name" name="name" placeholder="Your IGN">
+            <label for="code">One-time Code</label>
+            <input id="code" name="code" placeholder="e.g. 123456" autofocus>
+            <button type="submit">Sign in</button>
+          </form>
+          <p style="margin-top:12px;"><a href="/logout">Logout</a></p>
+        </div></body></html>
+        """.formatted(err);
+    }
+
+    private static String escape(String s) {
+        return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");
+    }
+}

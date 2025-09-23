@@ -79,6 +79,12 @@ messages:
   chatlog-open-url: "<gray>Open chat log:</gray> <click:open_url:'%url%'><underlined><aqua>%url%</aqua></underlined></click>"
   reloaded: "<green>ReportSystem reloaded.</green>"
 
+  # extra line in expanded view
+  expanded-server-line: "<gray>Server:</gray> <white>%server%</white>"
+
+  # the command used when clicking Jump to server (supports %server%)
+  jump-command-template: "/server %server%"
+
   # History (closed)
   history-page-header: "<gray>Closed Reports Page</gray> <white>%page%</white><gray>/<white>%pages%</white></gray>"
   history-page-empty: "<yellow>No closed reports.</yellow>"
@@ -97,10 +103,13 @@ messages:
   tip-expand: "Click to expand"
   tip-prev: "Previous page"
   tip-next: "Next page"
-  tip-assign-self: "Assign to yourself"
-  tip-unassign: "Remove assignee"
+  tip-reload: "Reload reports"
   tip-open-browser: "Open in browser"
   tip-copy-path: "Copy local path"
+  tip-open-login: "Open login page"
+  tip-close: "Close this report"
+  tip-chat: "View chat logs"
+  tip-jump-server: "Connect to this server"
 
 # Dynamic report types and categories
 report-types:
@@ -114,3 +123,18 @@ report-types:
     categories:
       network: "Network Bug"
       server: "Server Bug"
+
+auth:
+  enabled: true
+  code-length: 6             # digits
+  code-ttl-seconds: 120      # how long a one-time code is valid
+  session-ttl-minutes: 60    # how long a browser stays signed in
+  cookie-name: "RSSESSION"   # cookie used by the logs site
+  # Tip: rotate this occasionally; any change will invalidate active sessions
+  secret: "change-me-to-a-long-random-string"
+  # Optional allowlist of extra open paths (regex-ish, prefix match)
+  open-paths:
+    - "/login"
+    - "/login.css"
+    - "/favicon.ico"
+
