@@ -85,14 +85,24 @@ public class ReportCommand implements SimpleCommand {
             reason = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
         }
 
-        // Derive the backend/server where the report is filed (for expanded views & jump button)
-        String serverName = (src instanceof Player pp)
-                ? pp.getCurrentServer().map(s -> s.getServerInfo().getName()).orElse("UNKNOWN")
-                : "CONSOLE";
+        // Determine origin server (5th arg expected by ReportManager.fileOrStack)
+        String originServer = "unknown";
+        if (src instanceof Player p) {
+            originServer = p.getCurrentServer()
+                    .map(s -> s.getServerInfo().getName())
+                    .orElse("unknown");
+        } else {
+            originServer = "console";
+        }
 
-        // File or stack (augmented to record server name)
-        Report r = mgr.fileOrStack(reporter, reported, rt, reason, serverName);
-        chat.refreshWatchList(); // ensure chat capture watches targets for "chat" category
+        // File or stack (now passing originServer)
+        Report r = mgr.fileOrStack(reporter, reported, rt, reason, originServer);
+
+        // Ensure chat capture watches targets for "chat" category
+        chat.refreshWatchList();
+
+        // Backfill recent chat if this is a player/chat report
+        chat.backfillRecentFor(r);
 
         if (r.count > 1) {
             Text.msg(src, config.msg("report-stacked", "Report stacked into #%id% (now x%count%)")
