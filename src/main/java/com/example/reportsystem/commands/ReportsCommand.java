@@ -215,7 +215,7 @@ public class ReportsCommand implements SimpleCommand {
 
                 Text.msg(src,
                         "<gray>Your one-time code:</gray> <white><bold>" + code.code + "</bold></white> " +
-                                "<gray>(expires in " + config.msg("auth-code-ttl-s", "120") + "s)</gray>");
+                                "<gray>(expires in " + config.auth.codeTtlSeconds + "s)</gray>");
                 String tip = config.msg("tip-open-login","Open login page");
                 Text.msg(src,
                         "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + link + "'>Open login</click></hover></aqua><gray>]</gray>");
@@ -456,7 +456,6 @@ public class ReportsCommand implements SimpleCommand {
         }
         String p = (path == null) ? "" : path.trim();
         if (p.isEmpty() || p.equals("/")) return base;
-        // If base already ends with /login and path is /login, don't append again
         String lower = base.toLowerCase(Locale.ROOT);
         if (lower.endsWith("/login") && ("/login".equalsIgnoreCase(p) || "login".equalsIgnoreCase(p))) {
             return base;

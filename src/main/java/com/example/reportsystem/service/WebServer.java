@@ -10,6 +10,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
@@ -17,7 +18,7 @@ import java.util.stream.Stream;
 
 /**
  * Tiny embedded HTTP + simple cookie auth protecting the html-logs.
- * Behind Cloudflare Tunnel you can route /reports/* to this server.
+ * Behind Cloudflare Tunnel you can route / to this server.
  */
 public class WebServer {
     private final PluginConfig cfg;
@@ -58,55 +59,77 @@ public class WebServer {
     /* ----------------- handlers ----------------- */
 
     private void handleLogin(HttpExchange ex) throws IOException {
-        if ("GET".equalsIgnoreCase(ex.getRequestMethod())) {
-            respondHtml(ex, 200, loginForm(null));
-            return;
-        }
-        if ("POST".equalsIgnoreCase(ex.getRequestMethod())) {
-            Map<String, String> form = parseForm(ex);
-            String code = form.getOrDefault("code", "").trim();
-            String who  = form.getOrDefault("name", "").trim();
-            String sid = auth.redeemCode(code, who);
-            if (sid == null || !auth.looksSigned(sid)) {
-                respondHtml(ex, 401, loginForm("Invalid or expired code."));
+        try {
+            if ("GET".equalsIgnoreCase(ex.getRequestMethod())) {
+                String ret = getQueryParam(ex, "return");
+                respondHtml(ex, 200, loginForm(null, ret));
                 return;
             }
-            // set cookie and redirect to /
-            Headers h = ex.getResponseHeaders();
-            h.add("Set-Cookie", cookie(cfg.auth.cookieName, sid, cfg.auth.sessionTtlMinutes));
-            h.add("Location", "/");
-            ex.sendResponseHeaders(302, -1);
-            ex.close();
-            return;
+            if ("POST".equalsIgnoreCase(ex.getRequestMethod())) {
+                Map<String, String> form = parseForm(ex);
+                String code = form.getOrDefault("code", "").trim();
+                String who  = form.getOrDefault("name", "").trim();
+                String ret  = form.getOrDefault("return", "/");
+                if (ret == null || ret.isBlank()) ret = "/";
+
+                String sid = auth.redeemCode(code, who);
+                if (sid == null || !auth.looksSigned(sid)) {
+                    respondHtml(ex, 401, loginForm("Invalid or expired code.", ret));
+                    return;
+                }
+                Headers h = ex.getResponseHeaders();
+                h.add("Set-Cookie", cookie(cfg.auth.cookieName, sid, cfg.auth.sessionTtlMinutes));
+                h.add("Location", normalizeReturn(ret));
+                ex.sendResponseHeaders(302, -1);
+                ex.close();
+                return;
+            }
+            sendStatus(ex, 405, "Method Not Allowed");
+        } catch (Throwable t) {
+            log.warn("Login handler error: {}", t.toString());
+            safe500(ex);
         }
-        sendStatus(ex, 405, "Method Not Allowed");
     }
 
     private void handleLogout(HttpExchange ex) throws IOException {
-        String sid = readCookie(ex, cfg.auth.cookieName);
-        if (sid != null) auth.revoke(sid);
-        Headers h = ex.getResponseHeaders();
-        h.add("Set-Cookie", cfg.auth.cookieName + "=; Max-Age=0; Path=/; SameSite=Lax; HttpOnly");
-        h.add("Location", "/login");
-        ex.sendResponseHeaders(302, -1);
-        ex.close();
-    }
-
-    private void handleProtectedStatic(HttpExchange ex) throws IOException {
-        String path = ex.getRequestURI().getPath();
-        if (isOpen(path)) { serveStatic(ex, path); return; }
-
-        String sid = readCookie(ex, cfg.auth.cookieName);
-        var session = (cfg.auth.enabled) ? auth.validate(sid) : null;
-
-        if (cfg.auth.enabled && session == null) {
+        try {
+            String sid = readCookie(ex, cfg.auth.cookieName);
+            if (sid != null) auth.revoke(sid);
             Headers h = ex.getResponseHeaders();
+            h.add("Set-Cookie", cfg.auth.cookieName + "=; Max-Age=0; Path=/; SameSite=Lax; HttpOnly");
             h.add("Location", "/login");
             ex.sendResponseHeaders(302, -1);
             ex.close();
-            return;
+        } catch (Throwable t) {
+            log.warn("Logout handler error: {}", t.toString());
+            safe500(ex);
         }
-        serveStatic(ex, path);
+    }
+
+    private void handleProtectedStatic(HttpExchange ex) throws IOException {
+        try {
+            String path = ex.getRequestURI().getPath();
+            if (isOpen(path)) { serveStatic(ex, path); return; }
+
+            String sid = readCookie(ex, cfg.auth.cookieName);
+            var session = (cfg.auth.enabled) ? auth.validate(sid) : null;
+
+            if (cfg.auth.enabled && session == null) {
+                // redirect to login with return=<original path + query>
+                String original = ex.getRequestURI().getPath();
+                String qs = ex.getRequestURI().getQuery();
+                if (qs != null && !qs.isBlank()) original += "?" + qs;
+                Headers h = ex.getResponseHeaders();
+                h.add("Location", "/login?return=" + URLEncoder.encode(original, StandardCharsets.UTF_8));
+                ex.sendResponseHeaders(302, -1);
+                ex.close();
+                return;
+            }
+            serveStatic(ex, path);
+        } catch (Throwable t) {
+            log.warn("Static handler error: {}", t.toString());
+            safe500(ex);
+        }
     }
 
     /* ----------------- helpers ----------------- */
@@ -160,9 +183,8 @@ public class WebServer {
         Map<String, String> out = new HashMap<>();
         for (String kv : body.split("&")) {
             int i = kv.indexOf('=');
-            if (i <= 0) continue;
-            String k = URLDecoder.decode(kv.substring(0, i), StandardCharsets.UTF_8);
-            String v = URLDecoder.decode(kv.substring(i + 1), StandardCharsets.UTF_8);
+            String k = i > 0 ? URLDecoder.decode(kv.substring(0, i), StandardCharsets.UTF_8) : kv;
+            String v = i > 0 ? URLDecoder.decode(kv.substring(i + 1), StandardCharsets.UTF_8) : "";
             out.put(k, v);
         }
         return out;
@@ -200,8 +222,35 @@ public class WebServer {
         try (OutputStream os = ex.getResponseBody()) { os.write(bytes); }
     }
 
-    private String loginForm(String error) {
+    private void safe500(HttpExchange ex) throws IOException {
+        try { sendStatus(ex, 500, "Internal Server Error"); }
+        catch (Throwable ignored) { try { ex.close(); } catch (Throwable __) {} }
+    }
+
+    private String getQueryParam(HttpExchange ex, String name) {
+        String q = ex.getRequestURI().getQuery();
+        if (q == null) return null;
+        for (String kv : q.split("&")) {
+            int i = kv.indexOf('=');
+            String k = (i > 0) ? kv.substring(0,i) : kv;
+            if (name.equals(k)) {
+                return (i > 0) ? URLDecoder.decode(kv.substring(i+1), StandardCharsets.UTF_8) : "";
+            }
+        }
+        return null;
+    }
+
+    private String normalizeReturn(String ret) {
+        if (ret == null || ret.isBlank()) return "/";
+        // Only allow local relative paths for safety
+        if (!ret.startsWith("/")) return "/";
+        return ret;
+    }
+
+    private String loginForm(String error, String ret) {
         String err = (error == null) ? "" : "<div style='color:#c33;margin-bottom:10px;'>" + escape(error) + "</div>";
+        String hidden = (ret == null || ret.isBlank()) ? "" :
+                "<input type='hidden' name='return' value='" + escape(ret) + "'>";
         return """
         <!doctype html>
         <html><head><meta charset="utf-8"><title>ReportSystem Login</title>
@@ -219,6 +268,7 @@ public class WebServer {
           %s
           <p>Run <code>/reports auth</code> in-game to get a one-time code.</p>
           <form method="post" action="/login">
+            %s
             <label for="name">Minecraft Name (optional)</label>
             <input id="name" name="name" placeholder="Your IGN">
             <label for="code">One-time Code</label>
@@ -227,10 +277,10 @@ public class WebServer {
           </form>
           <p style="margin-top:12px;"><a href="/logout">Logout</a></p>
         </div></body></html>
-        """.formatted(err);
+        """.formatted(err, hidden);
     }
 
     private static String escape(String s) {
-        return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");
+        return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;");
     }
 }
