@@ -20,7 +20,7 @@ import java.util.Locale;
 
 /**
  * Staff /reports command.
- * Preserves all existing behavior and formatting, and adds:
+ * Adds:
  *  - /reports auth       (issues a one-time login code + link)
  *  - /reports logoutall  (revokes all web sessions for the caller)
  * Enhancements:
@@ -211,6 +211,10 @@ public class ReportsCommand implements SimpleCommand {
                     return;
                 }
                 var code = auth.issueCodeFor(p);
+                if (code == null) {
+                    Text.msg(src, "<red>You don't have permission to request a login code.</red>");
+                    return;
+                }
                 String base =
                         (config.httpServer != null && config.httpServer.externalBaseUrl != null && !config.httpServer.externalBaseUrl.isBlank())
                                 ? config.httpServer.externalBaseUrl.replaceAll("/+$","")
@@ -329,7 +333,7 @@ public class ReportsCommand implements SimpleCommand {
                 .replace("%server%", serverName);
         Text.msg(src, serverLine);
 
-        // Lines (kept same as your previous, includes assignee field)
+        // Lines
         var lines = config.msgList("expanded-lines", List.of(
                 "<gray>Reported:</gray> <white>%target%</white> <gray>by</gray> <white>%player%</white>",
                 "<gray>When:</gray> <white>%timestamp%</white>",
@@ -361,13 +365,15 @@ public class ReportsCommand implements SimpleCommand {
         String tipChat  = config.msg("tip-chat", "View chat logs");
         String tipJump  = config.msg("tip-jump-server", "Connect to this server");
 
-        String jumpCmdTemplate = config.msg("jump-command-template", "/server %server%");
-        String jumpCmd = jumpCmdTemplate.replace("%server%", serverName);
+        String actions = "<gray>[</gray><green><hover:show_text:'"+Text.escape(tipClose)+"'><click:run_command:'/reports close "+r.id+"'>Close</click></hover></green><gray>]</gray> "
+                + "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipChat)+"'><click:run_command:'/reports chat "+r.id+"'>Chat Logs</click></hover></aqua><gray>]</gray>";
 
-        String actions = ""
-                + "<gray>[</gray><green><hover:show_text:'"+Text.escape(tipClose)+"'><click:run_command:'/reports close "+r.id+"'>Close</click></hover></green><gray>]</gray> "
-                + "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipChat)+"'><click:run_command:'/reports chat "+r.id+"'>Chat Logs</click></hover></aqua><gray>]</gray> "
-                + "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipJump)+"'><click:run_command:'"+Text.escape(jumpCmd)+"'>Jump to server</click></hover></aqua><gray>]</gray>";
+        if (r.server != null && !r.server.isBlank() && !"UNKNOWN".equalsIgnoreCase(r.server)) {
+            String jumpCmdTemplate = config.msg("jump-command-template", "/server %server%");
+            String jumpCmd = jumpCmdTemplate.replace("%server%", r.server);
+            actions += " <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipJump)+"'><click:run_command:'"+Text.escape(jumpCmd)+"'>Jump to server</click></hover></aqua><gray>]</gray>";
+        }
+
         Text.msg(src, actions);
     }
 

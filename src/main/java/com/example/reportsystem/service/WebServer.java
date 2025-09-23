@@ -5,7 +5,6 @@ import org.slf4j.Logger;
 
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.*;
@@ -16,6 +15,10 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Stream;
 
+/**
+ * Tiny embedded HTTP + simple cookie auth protecting the html-logs.
+ * Behind Cloudflare Tunnel you can route /reports/* to this server.
+ */
 public class WebServer {
     private final PluginConfig cfg;
     private final Logger log;
@@ -90,23 +93,19 @@ public class WebServer {
     }
 
     private void handleProtectedStatic(HttpExchange ex) throws IOException {
-        // Allow open paths (login page, favicon, etc.)
         String path = ex.getRequestURI().getPath();
         if (isOpen(path)) { serveStatic(ex, path); return; }
 
-        // Gate: must have a valid session
         String sid = readCookie(ex, cfg.auth.cookieName);
         var session = (cfg.auth.enabled) ? auth.validate(sid) : null;
 
         if (cfg.auth.enabled && session == null) {
-            // not signed in -> redirect to login
             Headers h = ex.getResponseHeaders();
             h.add("Location", "/login");
             ex.sendResponseHeaders(302, -1);
             ex.close();
             return;
         }
-        // Serve the static file from html-logs
         serveStatic(ex, path);
     }
 
@@ -139,9 +138,8 @@ public class WebServer {
     }
 
     private Path safeResolve(String uriPath) {
-        // prevent path traversal
         Path p = root.resolve(uriPath.substring(1)).normalize();
-        if (!p.startsWith(root)) return null;
+        if (!p.startsWith(root)) return null; // prevent traversal
         return p;
     }
 
@@ -191,6 +189,13 @@ public class WebServer {
         Headers h = ex.getResponseHeaders();
         h.add("Content-Type", "text/html; charset=utf-8");
         h.add("Cache-Control", "no-store");
+        ex.sendResponseHeaders(code, bytes.length);
+        try (OutputStream os = ex.getResponseBody()) { os.write(bytes); }
+    }
+
+    private void sendStatus(HttpExchange ex, int code, String text) throws IOException {
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        ex.getResponseHeaders().add("Content-Type", "text/plain; charset=utf-8");
         ex.sendResponseHeaders(code, bytes.length);
         try (OutputStream os = ex.getResponseBody()) { os.write(bytes); }
     }

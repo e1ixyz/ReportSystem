@@ -16,6 +16,9 @@ public class Report {
     public int count;
     public ReportStatus status = ReportStatus.OPEN;
 
+    /** backend/server where the report was filed (optional) */
+    public String server;
+
     /** Optional assignee username (staff) */
     public String assignee = null;
 

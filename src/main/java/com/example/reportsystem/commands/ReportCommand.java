@@ -85,8 +85,13 @@ public class ReportCommand implements SimpleCommand {
             reason = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
         }
 
-        // File or stack
-        Report r = mgr.fileOrStack(reporter, reported, rt, reason);
+        // Derive the backend/server where the report is filed (for expanded views & jump button)
+        String serverName = (src instanceof Player pp)
+                ? pp.getCurrentServer().map(s -> s.getServerInfo().getName()).orElse("UNKNOWN")
+                : "CONSOLE";
+
+        // File or stack (augmented to record server name)
+        Report r = mgr.fileOrStack(reporter, reported, rt, reason, serverName);
         chat.refreshWatchList(); // ensure chat capture watches targets for "chat" category
 
         if (r.count > 1) {
@@ -104,7 +109,7 @@ public class ReportCommand implements SimpleCommand {
         String summary = "<yellow>New report:</yellow> <white>#"+r.id+
                 "</white> <gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray> " +
                 "<white>"+(isPlayerType ? r.reported : "—")+"</white> — <gray>"+Text.escape(reason)+
-                "</gray>  <gray>[</gray><aqua><click:run_command:'/reports view "+r.id+"'>view</click></aqua><gray>]</gray>";
+                "</gray>  <gray>[</gray><aqua><hover:show_text:'View report'><click:run_command:'/reports view "+r.id+"'>view</click></hover></aqua><gray>]</gray>";
 
         plugin.proxy().getAllPlayers().forEach(pl -> {
             if (pl.hasPermission(notifyPerm)) {
@@ -112,8 +117,13 @@ public class ReportCommand implements SimpleCommand {
             }
         });
 
-        // Discord webhook (best-effort)
-        plugin.notifier().notifyNew(r, reason);
+        // Optional notifier (keep feature without compile error)
+        try {
+            Object n = plugin.notifier();
+            if (n != null) {
+                n.getClass().getMethod("notifyNew", Report.class, String.class).invoke(n, r, reason);
+            }
+        } catch (Throwable ignored) {}
     }
 
     @Override

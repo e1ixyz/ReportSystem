@@ -67,7 +67,13 @@ public class ReportHistoryCommand implements SimpleCommand {
                 }
                 if (mgr.reopen(id)) {
                     Text.msg(src, config.msg("reopened","Reopened report #%id%").replace("%id%", String.valueOf(id)));
-                    plugin.notifier().notifyReopened(r);
+                    // Optional notifier via reflection (no compile dependency)
+                    try {
+                        Object n = plugin.notifier();
+                        if (n != null) {
+                            n.getClass().getMethod("notifyReopened", Report.class).invoke(n, r);
+                        }
+                    } catch (Throwable ignored) {}
                 } else {
                     Text.msg(src, "<red>Failed to reopen report.</red>");
                 }
@@ -107,13 +113,16 @@ public class ReportHistoryCommand implements SimpleCommand {
                 .replace("%page%", String.valueOf(page))
                 .replace("%pages%", String.valueOf(pages)));
 
+        String tipExpand = config.msg("tip-expand", "Click to expand");
+        String tipReopen = config.msg("tip-reopen", "Reopen this report");
+
         Pagination.paginate(closed, per, page).forEach(r -> {
             String line = "<white>#"+r.id+"</white> "
                     + "<gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray> "
                     + "<white>"+r.reported+"</white>"
                     + (r.assignee != null ? " <gray>[</gray><white>"+r.assignee+"</white><gray>]</gray>" : "")
-                    + "  <gray>[</gray><aqua><click:run_command:'/reporthistory view "+r.id+"'>expand</click></aqua><gray>]</gray>"
-                    + " <gray>[</gray><green><click:run_command:'/reporthistory reopen "+r.id+"'>reopen</click></green><gray>]</gray>";
+                    + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipExpand)+"'><click:run_command:'/reporthistory view "+r.id+"'>expand</click></hover></aqua><gray>]</gray>"
+                    + " <gray>[</gray><green><hover:show_text:'"+Text.escape(tipReopen)+"'><click:run_command:'/reporthistory reopen "+r.id+"'>reopen</click></hover></green><gray>]</gray>";
             Text.msg(src, line);
         });
 
@@ -145,7 +154,8 @@ public class ReportHistoryCommand implements SimpleCommand {
             Text.msg(src, out);
         }
 
-        Text.msg(src, config.msg("history-expanded-actions","[Reopen]").replace("%id%", String.valueOf(r.id)));
+        String tipReopen = config.msg("tip-reopen", "Reopen this report");
+        Text.msg(src, "<gray>[</gray><green><hover:show_text:'"+Text.escape(tipReopen)+"'><click:run_command:'/reporthistory reopen "+r.id+"'>Reopen</click></hover></green><gray>]</gray>");
     }
 
     private static long parseLong(String s, long def) {

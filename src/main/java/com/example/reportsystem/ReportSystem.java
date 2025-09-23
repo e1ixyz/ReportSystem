@@ -1,13 +1,19 @@
 package com.example.reportsystem;
 
+import com.example.reportsystem.commands.ReportCommand;
+import com.example.reportsystem.commands.ReportHistoryCommand;
 import com.example.reportsystem.commands.ReportsCommand;
+import com.example.reportsystem.config.ConfigManager;
 import com.example.reportsystem.config.PluginConfig;
 import com.example.reportsystem.service.AuthService;
 import com.example.reportsystem.service.ChatLogService;
+import com.example.reportsystem.service.HttpServerService;
+import com.example.reportsystem.service.Notifier;
 import com.example.reportsystem.service.ReportManager;
-import com.example.reportsystem.service.WebServer;
 import com.example.reportsystem.util.Text;
 import com.google.inject.Inject;
+import com.velocitypowered.api.command.CommandManager;
+import com.velocitypowered.api.command.CommandMeta;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.plugin.Plugin;
@@ -15,136 +21,133 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import org.slf4j.Logger;
 
-import java.nio.file.Files;
+import java.io.IOException;
 import java.nio.file.Path;
 
 @Plugin(
         id = "reportsystem",
         name = "ReportSystem",
-        version = "2.2.0",
-        description = "Proxy-side report & chat-log system with staff auth codes",
+        version = "2.1.0",
         authors = {"you"}
 )
 public final class ReportSystem {
 
-    private final ProxyServer server;
+    private final ProxyServer proxy;
     private final Logger logger;
-    private final Path dataDirectory;
+    private final Path dataDir;
 
     private PluginConfig config;
     private ReportManager reportManager;
     private ChatLogService chatLogService;
-
-
-    private Object notifier; // keep type-loose to avoid forcing a specific class here
-
-    // NEW: web auth + tiny HTTP server
+    private HttpServerService httpServerService;
     private AuthService authService;
-    private WebServer webServer;
+    private Notifier notifier;
 
     @Inject
-    public ReportSystem(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
-        this.server = server;
+    public ReportSystem(ProxyServer proxy, Logger logger, @DataDirectory Path dataDir) {
+        this.proxy = proxy;
         this.logger = logger;
-        this.dataDirectory = dataDirectory;
+        this.dataDir = dataDir;
     }
+
+    public ProxyServer proxy() { return proxy; }
+    public Logger logger() { return logger; }
+    public Path dataDir() { return dataDir; }
 
     @Subscribe
-    public void onProxyInitialize(ProxyInitializeEvent e) {
+    public void onInit(ProxyInitializeEvent e) {
+        // Load config.yml via ConfigManager (matches your current files)
         try {
-            Files.createDirectories(dataDirectory);
-            this.config = PluginConfig.loadOrCreate(dataDirectory, logger);
-
-            // Core services
-            this.reportManager = new ReportManager(config, logger, dataDirectory);
-            this.chatLogService = new ChatLogService(server, reportManager, config, logger);
-
-            // this.notifier = new Notifier(...);
-
-            // NEW: auth + web server for HTML logs
-            this.authService = new AuthService(config, logger);
-            Path htmlRoot = dataDirectory.resolve(config.htmlExportDir);
-            Files.createDirectories(htmlRoot);
-            this.webServer = new WebServer(config, logger, htmlRoot, authService);
-            try {
-                webServer.start();
-            } catch (Exception ex) {
-                logger.error("Failed to start embedded HTTP server", ex);
-            }
-
-            // Commands
-            registerCommands();
-
-            // Listeners (chat capture)
-            server.getEventManager().register(this, chatLogService);
-
-            logger.info("ReportSystem enabled.");
+            this.config = new ConfigManager(dataDir).loadOrCreate();
         } catch (Exception ex) {
-            logger.error("Failed to initialize ReportSystem", ex);
+            logger.error("Failed to load config.yml", ex);
+            this.config = new PluginConfig(); // fall back to defaults
         }
-    }
 
-    private void registerCommands() {
-        // /reports command (now includes 'auth' and 'logoutall')
-        server.getCommandManager().register(
-                server.getCommandManager().metaBuilder("reports").build(),
-                new ReportsCommand(this, reportManager, config, authService)
-        );
+        // Core services (match constructors in your current code)
+        this.reportManager     = new ReportManager(this, dataDir, config);
+        this.chatLogService    = new ChatLogService(this, reportManager, config);
+        this.httpServerService = new HttpServerService(this, config);
+        this.authService       = new AuthService(config, logger);
+        this.notifier          = new Notifier(this, config);
 
-        // Keep existing registrations for /report and /reporthistory elsewhere.
-    }
+        // Register event listeners for @Subscribe handlers
+        proxy.getEventManager().register(this, chatLogService);
 
-    /** Reload from disk and restart services; used by /reports reload and elsewhere. */
-    public synchronized void reload() {
-        try {
-            // Stop HTTP first
-            if (webServer != null) {
-                webServer.stop();
-            }
-
-            // Reload config and apply
-            this.config = PluginConfig.loadOrCreate(dataDirectory, logger);
-            if (reportManager != null) reportManager.applyConfig(config);
-            if (chatLogService != null) chatLogService.applyConfig(config);
-
-            // Recreate auth so new secrets/TTLs apply
-            this.authService = new AuthService(config, logger);
-
-            // Restart HTTP server with new settings
-            Path htmlRoot = dataDirectory.resolve(config.htmlExportDir);
-            Files.createDirectories(htmlRoot);
-            this.webServer = new WebServer(config, logger, htmlRoot, authService);
+        // Start embedded HTTP server if enabled
+        if (config.httpServer != null && config.httpServer.enabled) {
             try {
-                webServer.start();
-            } catch (Exception ex) {
-                logger.error("Failed to start embedded HTTP server after reload", ex);
+                httpServerService.start();
+            } catch (IOException io) {
+                logger.warn("HTTP server failed to start: {}", io.toString());
+            }
+        }
+
+        // Register commands (Velocity CommandMeta)
+        CommandManager cm = proxy.getCommandManager();
+
+        CommandMeta reportMeta = cm.metaBuilder("report").build();
+        cm.register(reportMeta, new ReportCommand(this, reportManager, chatLogService, config));
+
+        CommandMeta reportsMeta = cm.metaBuilder("reports").build();
+        cm.register(reportsMeta, new ReportsCommand(this, reportManager, config, authService));
+
+        CommandMeta historyMeta = cm.metaBuilder("reporthistory").build();
+        cm.register(historyMeta, new ReportHistoryCommand(this, reportManager, config));
+
+        // (Optional) short alias for history
+        try {
+            CommandMeta rhMeta = cm.metaBuilder("rh").build();
+            cm.register(rhMeta, new ReportHistoryCommand(this, reportManager, config));
+        } catch (Throwable ignored) {
+            // If alias collides with another plugin, just ignore
+        }
+
+        logger.info("ReportSystem enabled.");
+    }
+
+    /** Hot-reload config and reapply to services. */
+    public void reload() {
+        try {
+            PluginConfig newCfg = new ConfigManager(dataDir).loadOrCreate();
+            this.config = newCfg;
+
+            // Re-apply config to services that support it
+            this.reportManager.setConfig(newCfg);
+            this.chatLogService.setConfig(newCfg);
+            this.notifier.setConfig(newCfg);
+
+            // Restart HTTP server if toggle/port/base changed
+            if (httpServerService != null) {
+                httpServerService.stop();
+            }
+            this.httpServerService = new HttpServerService(this, newCfg);
+            if (newCfg.httpServer != null && newCfg.httpServer.enabled) {
+                try {
+                    httpServerService.start();
+                } catch (IOException io) {
+                    logger.warn("HTTP server failed to start after reload: {}", io.toString());
+                }
             }
 
-            // Re-register /reports to pick up any permission/message changes
-            server.getCommandManager().unregister("reports");
-            server.getCommandManager().register(
-                    server.getCommandManager().metaBuilder("reports").build(),
-                    new ReportsCommand(this, reportManager, config, authService)
-            );
-
-            Text.broadcastIf(server, config.notifyPermission, config.msg("reloaded", "<green>ReportSystem reloaded.</green>"));
+            // Let staff know (respecting notifyPermission)
+            proxy.getAllPlayers().forEach(p -> {
+                if (p.hasPermission(config.notifyPermission)) {
+                    Text.msg(p, config.msg("reloaded", "ReportSystem reloaded."));
+                }
+            });
             logger.info("ReportSystem reloaded.");
         } catch (Exception ex) {
-            logger.error("Error during ReportSystem reload", ex);
+            logger.error("Reload failed", ex);
         }
     }
 
-    /* ---------------------------------------------------
-       Accessors retained for existing code
-       --------------------------------------------------- */
+    // Accessors for services (used elsewhere)
+    public ReportManager reports() { return reportManager; }
+    public ChatLogService chatLogs() { return chatLogService; }
+    public HttpServerService httpServer() { return httpServerService; }
+    public AuthService auth() { return authService; }
 
-    public ProxyServer proxy() { return server; }
-
-    public Object notifier() { return notifier; }
-
-    public PluginConfig config() { return config; }
-
-    public Logger logger() { return logger; }
-
-    public Path dataDirectory() { return dataDirectory; }
+    // Notifier hook used by commands & history
+    public Notifier notifier() { return notifier; }
 }

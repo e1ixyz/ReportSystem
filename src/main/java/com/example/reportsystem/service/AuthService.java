@@ -47,6 +47,7 @@ public class AuthService {
 
     /** Issue a short one-time numeric code for a staff player. */
     public Code issueCodeFor(Player p) {
+        if (cfg.auth.requirePermission && !p.hasPermission(cfg.staffPermission)) return null;
         int len = Math.max(4, cfg.auth.codeLength);
         String code = generateDigits(len);
         long ttl = Math.max(15_000L, cfg.auth.codeTtlSeconds * 1000L);
@@ -61,7 +62,6 @@ public class AuthService {
         if (code == null) return null;
         Code c = codes.remove(code);
         if (c == null || c.expired()) return null;
-        // (Optional) You could also verify claimedName equals c.playerName
         long ttl = Math.max(60_000L, cfg.auth.sessionTtlMinutes * 60_000L);
         String sid = sign(randomToken());
         Session s = new Session(sid, c.playerUuid, c.playerName, System.currentTimeMillis() + ttl);
@@ -75,7 +75,6 @@ public class AuthService {
         if (sid == null || sid.isBlank()) return null;
         Session s = sessions.get(sid);
         if (s == null || s.expired()) { if (s != null) sessions.remove(sid); return null; }
-        // sliding expiration
         long ttl = Math.max(60_000L, cfg.auth.sessionTtlMinutes * 60_000L);
         s.expiresAt = System.currentTimeMillis() + ttl;
         return s;

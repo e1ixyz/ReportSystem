@@ -12,6 +12,11 @@ import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+/**
+ * Very small static file server for html-logs. If you're using the
+ * more advanced WebServer with login, you can keep both; this one
+ * is useful when you only need raw static serving.
+ */
 public class HttpServerService {
 
     private final ReportSystem plugin;
@@ -25,6 +30,8 @@ public class HttpServerService {
 
     public void start() throws IOException {
         if (server != null) return;
+        if (!config.httpServer.enabled) return;
+
         InetSocketAddress addr = new InetSocketAddress(config.httpServer.bind, config.httpServer.port);
         server = HttpServer.create(addr, 0);
         final Path root = plugin.dataDir().resolve(config.htmlExportDir).normalize();

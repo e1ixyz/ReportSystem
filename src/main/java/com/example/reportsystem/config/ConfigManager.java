@@ -6,6 +6,7 @@ import org.yaml.snakeyaml.Yaml;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 public class ConfigManager {
@@ -80,6 +81,20 @@ public class ConfigManager {
         pc.discord.username  = get(d, "username", "ReportSystem");
         pc.discord.avatarUrl = get(d, "avatar-url", "");
         pc.discord.timeoutMs = get(d, "timeout-ms", 4000);
+
+        // Auth (NEW)
+        Map<String,Object> a = (Map<String,Object>) root.getOrDefault("auth", Map.of());
+        pc.auth.enabled            = get(a, "enabled", true);
+        pc.auth.cookieName         = get(a, "cookie-name", "rsid");
+        pc.auth.sessionTtlMinutes  = get(a, "session-ttl-minutes", 60 * 24);
+        pc.auth.codeTtlSeconds     = get(a, "code-ttl-seconds", 120);
+        pc.auth.codeLength         = get(a, "code-length", 6);
+        pc.auth.secret             = get(a, "secret", "change-me");
+        pc.auth.requirePermission  = get(a, "require-permission", true);
+        Object openPathsObj = a.get("open-paths");
+        if (openPathsObj instanceof List<?> lst) {
+            pc.auth.openPaths = (List<String>) (List<?>) lst;
+        }
 
         // Messages
         pc.messages = (Map<String, Object>) root.getOrDefault("messages", Map.of());

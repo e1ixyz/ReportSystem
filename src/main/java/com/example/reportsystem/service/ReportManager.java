@@ -143,8 +143,11 @@ public class ReportManager {
                 .collect(Collectors.toList());
     }
 
-    /** Create or stack a report. */
-    public synchronized Report fileOrStack(String reporter, String reported, ReportType rt, String reason) {
+    /**
+     * Create or stack a report.
+     * NOTE: augmented with serverName (backend) capture for expanded view/jump button.
+     */
+    public synchronized Report fileOrStack(String reporter, String reported, ReportType rt, String reason, String serverName) {
         long now = System.currentTimeMillis();
 
         Report target = findStackTarget(reported, rt);
@@ -157,6 +160,10 @@ public class ReportManager {
                     target.reason = (target.reason == null || target.reason.isBlank())
                             ? reason
                             : target.reason + " | " + reason;
+                }
+                // backfill server if unknown
+                if ((target.server == null || target.server.isBlank()) && serverName != null && !serverName.isBlank()) {
+                    target.server = serverName;
                 }
                 lastUpdateMillis.put(target.id, now);
                 trySave(target);
@@ -177,6 +184,7 @@ public class ReportManager {
         r.count = 1;
         r.timestamp = now;
         r.status = ReportStatus.OPEN;
+        r.server = safeStr(serverName);
         r.assignee = null;
 
         reports.put(id, r);
@@ -343,6 +351,7 @@ public class ReportManager {
         m.put("timestamp", r.timestamp);
         m.put("status", r.status == null ? ReportStatus.OPEN.name() : r.status.name());
         m.put("assignee", nullIfBlank(r.assignee));
+        m.put("server", nullIfBlank(r.server)); // persist report's server
         long closedAt = closedAtById.getOrDefault(r.id, 0L);
         m.put("closedAt", closedAt);
 
@@ -377,6 +386,7 @@ public class ReportManager {
             r.reason = asStr(m.get("reason"));
             r.count = (int) getLong(m.get("count"), 1);
             r.timestamp = getLong(m.get("timestamp"), System.currentTimeMillis());
+            r.server = asStr(m.get("server"));
 
             String st = asStr(m.get("status"));
             r.status = (st == null || st.isBlank()) ? ReportStatus.OPEN : ReportStatus.valueOf(st);
@@ -391,7 +401,8 @@ public class ReportManager {
                         String pl = asStr(mm.get("player"));
                         String sv = asStr(mm.get("server"));
                         String ms = asStr(mm.get("message"));
-                        r.chat.add(new ChatMessage(t, pl, sv, ms));
+                        // ChatMessage ctor: (time, server, player, message)
+                        r.chat.add(new ChatMessage(t, sv, pl, ms));
                     }
                 }
             }

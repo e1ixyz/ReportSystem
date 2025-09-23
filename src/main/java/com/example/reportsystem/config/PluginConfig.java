@@ -1,9 +1,20 @@
 package com.example.reportsystem.config;
 
+import org.slf4j.Logger;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Runtime config bag with sensible defaults.
+ * NOTE: Minimal loader stubs included so older callsites like
+ * PluginConfig.loadOrCreate(Path, Logger) compile. If you already
+ * have a real YAML loader elsewhere, keep it and just ensure the
+ * new Auth fields exist.
+ */
 public class PluginConfig {
     // Core
     public boolean allowSelfReport = false;
@@ -36,11 +47,14 @@ public class PluginConfig {
     public String colorRed = "<red>";
     public String colorDarkRed = "<dark_red>";
 
-    // Optional embedded HTTP server (lets staff click links without a domain; use proxy IP:port)
+    // Optional embedded HTTP server
     public HttpServerConfig httpServer = new HttpServerConfig();
 
     // Discord webhook (existing)
     public DiscordConfig discord = new DiscordConfig();
+
+    // NEW: lightweight web auth options used by WebServer/AuthService
+    public AuthConfig auth = new AuthConfig();
 
     // Messages & dynamic types
     public Map<String, Object> messages = new LinkedHashMap<>();
@@ -73,9 +87,42 @@ public class PluginConfig {
 
     public static class HttpServerConfig {
         public boolean enabled = false;
-        public String externalBaseUrl = ""; // e.g. "http://123.45.67.89:8085"
+        /** Example: "https://reports.example.com" or "https://map.example.com/reports" */
+        public String externalBaseUrl = "";
         public String bind = "0.0.0.0";
         public int port = 8085;
+        /** Mount path inside the tiny server (default "/"). */
         public String basePath = "/";
+    }
+
+    /** NEW: auth block used by WebServer/AuthService/ReportsCommand */
+    public static class AuthConfig {
+        public boolean enabled = true;
+        public String cookieName = "rsid";
+        /** minutes; sliding session extension */
+        public int sessionTtlMinutes = 60 * 24; // 24h
+        /** seconds for one-time code validity */
+        public int codeTtlSeconds = 120;
+        /** digits in the one-time code */
+        public int codeLength = 6;
+        /** optional signing secret for sessions */
+        public String secret = "change-me";
+        /** allow unauthenticated paths when auth is enabled */
+        public List<String> openPaths = List.of("/login", "/favicon.ico");
+        /** require staff perm to request codes via /reports auth */
+        public boolean requirePermission = true;
+    }
+
+    /* -------------------- minimal loader stubs -------------------- */
+    public static PluginConfig loadOrCreate(Path dataDir) {
+        try {
+            Files.createDirectories(dataDir);
+        } catch (Exception ignored) {}
+        // If you have a real YAML loader, use it here and populate this class.
+        // Stub returns defaults so the plugin can boot even without a file.
+        return new PluginConfig();
+    }
+    public static PluginConfig loadOrCreate(Path dataDir, Logger logger) {
+        return loadOrCreate(dataDir);
     }
 }
