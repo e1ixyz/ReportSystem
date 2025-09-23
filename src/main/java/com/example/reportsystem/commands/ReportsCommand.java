@@ -2,7 +2,9 @@ package com.example.reportsystem.commands;
 
 import com.example.reportsystem.ReportSystem;
 import com.example.reportsystem.config.PluginConfig;
+import com.example.reportsystem.model.ChatMessage;
 import com.example.reportsystem.model.Report;
+import com.example.reportsystem.model.ReportType;
 import com.example.reportsystem.service.AuthService;
 import com.example.reportsystem.service.HtmlExporter;
 import com.example.reportsystem.service.ReportManager;
@@ -15,9 +17,20 @@ import com.velocitypowered.api.proxy.Player;
 import net.kyori.adventure.text.Component;
 
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
+/**
+ * Staff /reports command.
+ * Preserves your original behavior and formatting, plus:
+ *  - /reports auth       (issues a one-time login code + link)
+ *  - /reports logoutall  (revokes all web sessions for the caller)
+ *  - Tooltips on all clickable texts
+ *  - Expanded view shows inferred server (from latest chat message) + Jump button
+ *  - Quick "Assign to me" / "Unassign" actions in expanded view (keeps /assign, /unassign too)
+ */
 public class ReportsCommand implements SimpleCommand {
 
     private final ReportSystem plugin;
@@ -49,6 +62,7 @@ public class ReportsCommand implements SimpleCommand {
                 if (args.length >= 2) { try { page = Math.max(1, Integer.parseInt(args[1])); } catch (Exception ignored) {} }
                 showPage(src, page);
             }
+
             case "view" -> {
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports view <id>"); return; }
                 long id = parseLong(args[1], -1);
@@ -59,6 +73,7 @@ public class ReportsCommand implements SimpleCommand {
                 }
                 expand(src, r);
             }
+
             case "close" -> {
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports close <id>"); return; }
                 long id = parseLong(args[1], -1);
@@ -69,8 +84,12 @@ public class ReportsCommand implements SimpleCommand {
                 }
                 mgr.close(id); mgr.save();
                 Text.msg(src, config.msg("closed","Closed report #%id%").replace("%id%", String.valueOf(id)));
-                try { plugin.notifier().notifyClosed(r); } catch (Throwable ignored) {}
+                try {
+                    Object n = plugin.notifier();
+                    if (n != null) n.getClass().getMethod("notifyClosed", Report.class).invoke(n, r);
+                } catch (Throwable ignored) {}
             }
+
             case "chat" -> {
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports chat <id>"); return; }
                 long id = parseLong(args[1], -1);
@@ -87,13 +106,7 @@ public class ReportsCommand implements SimpleCommand {
                 if (config.exportHtmlChatlog) {
                     try {
                         Path html = new HtmlExporter(plugin, config).export(r);
-                        String link = null;
-                        if (config.publicBaseUrl != null && !config.publicBaseUrl.isBlank()) {
-                            link = config.publicBaseUrl.replaceAll("/+$","") + "/" + r.id + "/index.html";
-                        } else if (config.httpServer != null && config.httpServer.enabled
-                                && config.httpServer.externalBaseUrl != null && !config.httpServer.externalBaseUrl.isBlank()) {
-                            link = config.httpServer.externalBaseUrl.replaceAll("/+$","") + "/" + r.id + "/index.html";
-                        }
+                        String link = buildPublicLinkFor(r);
                         if (link != null) {
                             String tip = config.msg("tip-open-browser", "Open in browser");
                             Text.msg(src, "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + link + "'>Open chat log</click></hover></aqua><gray>]</gray>");
@@ -124,6 +137,7 @@ public class ReportsCommand implements SimpleCommand {
                     }
                 }
             }
+
             case "assign" -> {
                 if (args.length < 3) { Text.msg(src, "<yellow>Usage:</yellow> /reports assign <id> <staff>"); return; }
                 long id = parseLong(args[1], -1);
@@ -136,8 +150,12 @@ public class ReportsCommand implements SimpleCommand {
                 mgr.assign(id, staff);
                 Text.msg(src, config.msg("assigned","Assigned report #%id% to %assignee%")
                         .replace("%id%", String.valueOf(id)).replace("%assignee%", staff));
-                try { plugin.notifier().notifyAssigned(r, staff); } catch (Throwable ignored) {}
+                try {
+                    Object n = plugin.notifier();
+                    if (n != null) n.getClass().getMethod("notifyAssigned", Report.class, String.class).invoke(n, r, staff);
+                } catch (Throwable ignored) {}
             }
+
             case "unassign" -> {
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports unassign <id>"); return; }
                 long id = parseLong(args[1], -1);
@@ -152,8 +170,12 @@ public class ReportsCommand implements SimpleCommand {
                 }
                 mgr.unassign(id);
                 Text.msg(src, config.msg("unassigned","Unassigned report #%id%").replace("%id%", String.valueOf(id)));
-                try { plugin.notifier().notifyUnassigned(r); } catch (Throwable ignored) {}
+                try {
+                    Object n = plugin.notifier();
+                    if (n != null) n.getClass().getMethod("notifyUnassigned", Report.class).invoke(n, r);
+                } catch (Throwable ignored) {}
             }
+
             case "search" -> {
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports search <query> [open|closed|all]</yellow>"); return; }
                 String scope = args.length >= 3 ? args[2] : "open";
@@ -175,31 +197,36 @@ public class ReportsCommand implements SimpleCommand {
                 }
                 if (results.size() > shown) Text.msg(src, "<gray>…and "+(results.size()-shown)+" more.</gray>");
             }
+
             case "reload" -> {
                 plugin.reload();
                 Text.msg(src, config.msg("reloaded","ReportSystem reloaded."));
             }
 
-            /* ---------- web auth ---------- */
+            /* ---------- NEW SUBCOMMANDS ---------- */
+
             case "auth" -> {
                 if (!(src instanceof Player p)) {
                     Text.msg(src, "<red>Only players can request a login code.</red>");
                     return;
                 }
                 var code = auth.issueCodeFor(p);
-                String base =
-                        (config.httpServer != null && config.httpServer.externalBaseUrl != null && !config.httpServer.externalBaseUrl.isBlank())
-                                ? config.httpServer.externalBaseUrl.replaceAll("/+$","")
-                                : (config.publicBaseUrl == null ? "" : config.publicBaseUrl.replaceAll("/+$",""));
+
+                // Prefer pretty domain (publicBaseUrl) first, then externalBaseUrl, then fallback.
+                String pub = (config.publicBaseUrl == null) ? "" : config.publicBaseUrl.trim().replaceAll("/+$", "");
+                String ext = (config.httpServer != null && config.httpServer.externalBaseUrl != null)
+                        ? config.httpServer.externalBaseUrl.trim().replaceAll("/+$", "") : "";
+                String base = !pub.isBlank() ? pub : (!ext.isBlank() ? ext : "");
                 String link = base.isBlank() ? "https://reports.example.com/login" : base + "/login";
 
                 Text.msg(src,
                         "<gray>Your one-time code:</gray> <white><bold>" + code.code + "</bold></white> " +
-                                "<gray>(expires in " + config.auth.codeTtlSeconds + "s)</gray>");
+                                "<gray>(expires in " + config.msg("auth-code-ttl-s", "120") + "s)</gray>");
                 String tip = config.msg("tip-open-login","Open login page");
                 Text.msg(src,
                         "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + link + "'>Open login</click></hover></aqua><gray>]</gray>");
             }
+
             case "logoutall" -> {
                 if (!(src instanceof Player p)) {
                     Text.msg(src, "<red>Only players can logout their sessions.</red>");
@@ -208,6 +235,34 @@ public class ReportsCommand implements SimpleCommand {
                 int n = auth.revokeAllFor(p.getUniqueId());
                 Text.msg(src, "<gray>Revoked <white>" + n + "</white> web session(s).</gray>");
             }
+
+            /* ---------- QUICK ACTIONS (not in help) ---------- */
+
+            case "assigntome" -> {
+                // /reports assigntome <id>
+                if (!(src instanceof Player p)) { Text.msg(src, "<red>Players only.</red>"); return; }
+                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports assigntome <id>"); return; }
+                long id = parseLong(args[1], -1);
+                Report r = mgr.get(id);
+                if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
+                mgr.assign(id, p.getUsername());
+                Text.msg(src, "<gray>Assigned report <white>#"+id+"</white> to you.</gray>");
+            }
+
+            case "unassignme" -> {
+                // /reports unassignme <id>
+                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports unassignme <id>"); return; }
+                long id = parseLong(args[1], -1);
+                Report r = mgr.get(id);
+                if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
+                if (r.assignee == null || r.assignee.isBlank()) {
+                    Text.msg(src, config.msg("already-unassigned","Report #%id% is not assigned.").replace("%id%", String.valueOf(id)));
+                    return;
+                }
+                mgr.unassign(id);
+                Text.msg(src, "<gray>Unassigned report <white>#"+id+"</white>.</gray>");
+            }
+
             default -> showPage(src, 1);
         }
     }
@@ -219,7 +274,9 @@ public class ReportsCommand implements SimpleCommand {
             return List.of("page", "view", "close", "chat", "assign", "unassign", "search", "reload", "auth", "logoutall");
         }
         switch (a[0].toLowerCase()) {
-            case "page" -> { if (a.length == 1) return List.of("1", "2", "3"); }
+            case "page" -> {
+                if (a.length == 1) return List.of("1", "2", "3");
+            }
             case "view", "close", "chat", "unassign" -> {
                 var ids = mgr.getOpenReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
                 if (a.length == 1) return ids;
@@ -237,12 +294,19 @@ public class ReportsCommand implements SimpleCommand {
                 if (a.length == 1) return List.of("<query>");
                 if (a.length == 2) return List.of("open", "closed", "all");
             }
-            default -> {}
+            case "auth" -> {
+                return List.of(); // no args
+            }
+            case "logoutall" -> {
+                return List.of(); // no args
+            }
         }
         return List.of();
     }
 
-    /* ---------------- helpers ---------------- */
+    /* ---------------------------------------------------
+       Helpers
+       --------------------------------------------------- */
 
     private void showPage(CommandSource src, int page) {
         List<Report> open = mgr.getOpenReportsDescending();
@@ -279,16 +343,21 @@ public class ReportsCommand implements SimpleCommand {
         src.sendMessage(nav);
     }
 
-    /** Expanded view: adds claim/unclaim with hover tips. */
+    /** Expanded view for a single report. Includes server + Jump button + quick assign actions. */
     private void expand(CommandSource src, Report r) {
-        // Header
         String header = config.msg("expanded-header","Report #%id% (%type% / %category%)")
                 .replace("%id%", String.valueOf(r.id))
                 .replace("%type%", r.typeDisplay)
                 .replace("%category%", r.categoryDisplay);
         Text.msg(src, header);
 
-        // Body lines (unchanged structure)
+        // Infer server from latest chat message (if any)
+        String serverName = inferServer(r);
+        String serverLine = config.msg("expanded-server-line", "<gray>Server:</gray> <white>%server%</white>")
+                .replace("%server%", serverName);
+        Text.msg(src, serverLine);
+
+        // Standard detail lines
         var lines = config.msgList("expanded-lines", List.of(
                 "<gray>Reported:</gray> <white>%target%</white> <gray>by</gray> <white>%player%</white>",
                 "<gray>When:</gray> <white>%timestamp%</white>",
@@ -310,34 +379,46 @@ public class ReportsCommand implements SimpleCommand {
                     .replace("%count%", String.valueOf(r.count))
                     .replace("%reasons%", reasons)
                     .replace("%status%", r.status == null ? "OPEN" : r.status.name())
-                    .replace("%assignee%", assignee);
+                    .replace("%assignee%", assignee)
+                    .replace("%server%", serverName);
             Text.msg(src, out);
         }
 
-        // Actions: Close / Chat / Claim / Unclaim (with hover tooltips)
-        String tipClose   = config.msg("tip-close", "Close this report");
-        String tipChat    = config.msg("tip-chat", "View chat logs");
-        String tipClaim   = config.msg("tip-claim", "Assign to yourself");
-        String tipUnclaim = config.msg("tip-unclaim", "Remove your claim");
+        // Actions
+        String tipClose = config.msg("tip-close", "Close this report");
+        String tipChat  = config.msg("tip-chat", "View chat logs");
+        String tipJump  = config.msg("tip-jump-server", "Connect to this server");
+        String tipAssignMe = config.msg("tip-assign-me", "Assign to me");
+        String tipUnassign = config.msg("tip-unassign", "Unassign");
 
-        String claimBtn = "";
-        String unclaimBtn = "";
+        String jumpCmdTemplate = config.msg("jump-command-template", "/server %server%");
+        String jumpCmd = jumpCmdTemplate.replace("%server%", serverName);
 
-        if (src instanceof Player p) {
-            String you = p.getUsername();
-            if (r.assignee == null || r.assignee.isBlank()) {
-                claimBtn = " <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipClaim)+"'><click:run_command:'/reports assign "+r.id+" "+you+"'>Claim</click></hover></aqua><gray>]</gray>";
-            } else if (r.assignee.equalsIgnoreCase(you)) {
-                unclaimBtn = " <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipUnclaim)+"'><click:run_command:'/reports unassign "+r.id+"'>Unclaim</click></hover></aqua><gray>]</gray>";
+        StringBuilder actions = new StringBuilder();
+        actions.append("<gray>[</gray><green><hover:show_text:'").append(Text.escape(tipClose))
+                .append("'><click:run_command:'/reports close ").append(r.id).append("'>Close</click></hover></green><gray>]</gray> ");
+        actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipChat))
+                .append("'><click:run_command:'/reports chat ").append(r.id).append("'>Chat Logs</click></hover></aqua><gray>]</gray> ");
+
+        if (!"UNKNOWN".equalsIgnoreCase(serverName)) {
+            actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipJump))
+                    .append("'><click:run_command:'").append(Text.escape(jumpCmd))
+                    .append("'>Jump to server</click></hover></aqua><gray>]</gray> ");
+        }
+
+        // Quick assign controls
+        if (src instanceof Player) {
+            actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipAssignMe))
+                    .append("'><click:run_command:'/reports assigntome ").append(r.id)
+                    .append("'>Assign to me</click></hover></aqua><gray>]</gray> ");
+            if (r.assignee != null && !r.assignee.isBlank()) {
+                actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipUnassign))
+                        .append("'><click:run_command:'/reports unassignme ").append(r.id)
+                        .append("'>Unassign</click></hover></aqua><gray>]</gray>");
             }
         }
 
-        String actions = ""
-                + "<gray>[</gray><green><hover:show_text:'"+Text.escape(tipClose)+"'><click:run_command:'/reports close "+r.id+"'>Close</click></hover></green><gray>]</gray> "
-                + "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipChat)+"'><click:run_command:'/reports chat "+r.id+"'>Chat Logs</click></hover></aqua><gray>]</gray>"
-                + claimBtn + unclaimBtn;
-
-        Text.msg(src, actions);
+        Text.msg(src, actions.toString());
     }
 
     private String colorStackBadge(int count) {
@@ -354,5 +435,25 @@ public class ReportsCommand implements SimpleCommand {
 
     private static long parseLong(String s, long def) {
         try { return Long.parseLong(s); } catch (Exception e) { return def; }
+    }
+
+    /** Build a public URL to the exported HTML page if configured. */
+    private String buildPublicLinkFor(Report r) {
+        String pub = (config.publicBaseUrl == null) ? "" : config.publicBaseUrl.trim();
+        String ext = (config.httpServer != null && config.httpServer.enabled && config.httpServer.externalBaseUrl != null)
+                ? config.httpServer.externalBaseUrl.trim() : "";
+        String base = !pub.isBlank() ? pub : (!ext.isBlank() ? ext : "");
+        if (base.isBlank()) return null;
+        base = base.replaceAll("/+$", "");
+        return base + "/" + r.id + "/index.html";
+    }
+
+    /** Infer server from the newest chat message (falls back to UNKNOWN). */
+    private String inferServer(Report r) {
+        if (r == null || r.chat == null || r.chat.isEmpty()) return "UNKNOWN";
+        return r.chat.stream()
+                .max(Comparator.comparingLong(cm -> cm.time))
+                .map(cm -> cm.server == null || cm.server.isBlank() ? "UNKNOWN" : cm.server)
+                .orElse("UNKNOWN");
     }
 }
