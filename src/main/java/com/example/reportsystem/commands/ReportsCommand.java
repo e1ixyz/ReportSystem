@@ -2,9 +2,7 @@ package com.example.reportsystem.commands;
 
 import com.example.reportsystem.ReportSystem;
 import com.example.reportsystem.config.PluginConfig;
-import com.example.reportsystem.model.ChatMessage;
 import com.example.reportsystem.model.Report;
-import com.example.reportsystem.model.ReportType;
 import com.example.reportsystem.service.AuthService;
 import com.example.reportsystem.service.HtmlExporter;
 import com.example.reportsystem.service.ReportManager;
@@ -20,7 +18,6 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 
 /**
  * Staff /reports command.
@@ -212,12 +209,9 @@ public class ReportsCommand implements SimpleCommand {
                 }
                 var code = auth.issueCodeFor(p);
 
-                // Prefer pretty domain (publicBaseUrl) first, then externalBaseUrl, then fallback.
-                String pub = (config.publicBaseUrl == null) ? "" : config.publicBaseUrl.trim().replaceAll("/+$", "");
-                String ext = (config.httpServer != null && config.httpServer.externalBaseUrl != null)
-                        ? config.httpServer.externalBaseUrl.trim().replaceAll("/+$", "") : "";
-                String base = !pub.isBlank() ? pub : (!ext.isBlank() ? ext : "");
-                String link = base.isBlank() ? "https://reports.example.com/login" : base + "/login";
+                // Pick the best base and join safely to avoid /login/login
+                String base = pickBaseUrl(config);
+                String link = joinUrl(base, "/login");
 
                 Text.msg(src,
                         "<gray>Your one-time code:</gray> <white><bold>" + code.code + "</bold></white> " +
@@ -437,15 +431,38 @@ public class ReportsCommand implements SimpleCommand {
         try { return Long.parseLong(s); } catch (Exception e) { return def; }
     }
 
-    /** Build a public URL to the exported HTML page if configured. */
+    /** Build a public URL to the exported HTML page if configured (cleans duplicate slashes). */
     private String buildPublicLinkFor(Report r) {
-        String pub = (config.publicBaseUrl == null) ? "" : config.publicBaseUrl.trim();
-        String ext = (config.httpServer != null && config.httpServer.enabled && config.httpServer.externalBaseUrl != null)
-                ? config.httpServer.externalBaseUrl.trim() : "";
-        String base = !pub.isBlank() ? pub : (!ext.isBlank() ? ext : "");
+        String base = pickBaseUrl(config);
         if (base.isBlank()) return null;
-        base = base.replaceAll("/+$", "");
-        return base + "/" + r.id + "/index.html";
+        // Ensure exactly one slash between base and /<id>/index.html
+        return joinUrl(base, "/" + r.id + "/index.html");
+    }
+
+    /** Prefer publicBaseUrl, then httpServer.externalBaseUrl. Strips trailing slashes. */
+    private static String pickBaseUrl(PluginConfig c) {
+        String a = (c.publicBaseUrl == null) ? "" : c.publicBaseUrl.trim();
+        String b = (c.httpServer != null && c.httpServer.externalBaseUrl != null)
+                ? c.httpServer.externalBaseUrl.trim() : "";
+        String base = !a.isBlank() ? a : b;
+        while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        return base;
+    }
+
+    /** Join base + path without doubling “/” or “/login”. */
+    private static String joinUrl(String base, String path) {
+        if (base == null || base.isBlank()) {
+            return (path == null || path.isBlank()) ? "/" : (path.startsWith("/") ? path : "/" + path);
+        }
+        String p = (path == null) ? "" : path.trim();
+        if (p.isEmpty() || p.equals("/")) return base;
+        // If base already ends with /login and path is /login, don't append again
+        String lower = base.toLowerCase(Locale.ROOT);
+        if (lower.endsWith("/login") && ("/login".equalsIgnoreCase(p) || "login".equalsIgnoreCase(p))) {
+            return base;
+        }
+        if (p.startsWith("/")) return base + p;
+        return base + "/" + p;
     }
 
     /** Infer server from the newest chat message (falls back to UNKNOWN). */
