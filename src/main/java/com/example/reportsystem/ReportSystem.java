@@ -7,9 +7,9 @@ import com.example.reportsystem.config.ConfigManager;
 import com.example.reportsystem.config.PluginConfig;
 import com.example.reportsystem.service.AuthService;
 import com.example.reportsystem.service.ChatLogService;
-import com.example.reportsystem.service.HttpServerService;
 import com.example.reportsystem.service.Notifier;
 import com.example.reportsystem.service.ReportManager;
+import com.example.reportsystem.service.WebServer;
 import com.example.reportsystem.util.Text;
 import com.google.inject.Inject;
 import com.velocitypowered.api.command.CommandManager;
@@ -39,9 +39,11 @@ public final class ReportSystem {
     private PluginConfig config;
     private ReportManager reportManager;
     private ChatLogService chatLogService;
-    private HttpServerService httpServerService;
     private AuthService authService;
     private Notifier notifier;
+
+    // IMPORTANT: use the auth-aware web server, not HttpServerService
+    private WebServer webServer;
 
     @Inject
     public ReportSystem(ProxyServer proxy, Logger logger, @DataDirectory Path dataDir) {
@@ -56,7 +58,7 @@ public final class ReportSystem {
 
     @Subscribe
     public void onInit(ProxyInitializeEvent e) {
-        // Load config.yml via ConfigManager (matches your current files)
+        // Load config
         try {
             this.config = new ConfigManager(dataDir).loadOrCreate();
         } catch (Exception ex) {
@@ -64,28 +66,28 @@ public final class ReportSystem {
             this.config = new PluginConfig(); // fall back to defaults
         }
 
-        // Core services (match constructors in your current code)
-        this.reportManager     = new ReportManager(this, dataDir, config);
-        this.chatLogService    = new ChatLogService(this, reportManager, config);
-        this.httpServerService = new HttpServerService(this, config);
-        this.authService       = new AuthService(config, logger);
-        this.notifier          = new Notifier(this, config);
+        // Core services
+        this.reportManager  = new ReportManager(this, dataDir, config);
+        this.chatLogService = new ChatLogService(this, reportManager, config);
+        this.authService    = new AuthService(config, logger);
+        this.notifier       = new Notifier(this, config);
 
-        // Register event listeners for @Subscribe handlers
+        // Event listeners
         proxy.getEventManager().register(this, chatLogService);
 
-        // Start embedded HTTP server if enabled
+        // Start the AUTH-PROTECTED web server (serves html-logs/)
         if (config.httpServer != null && config.httpServer.enabled) {
+            var root = dataDir.resolve(config.htmlExportDir);
+            this.webServer = new WebServer(config, logger, root, authService);
             try {
-                httpServerService.start();
+                webServer.start();
             } catch (IOException io) {
                 logger.warn("HTTP server failed to start: {}", io.toString());
             }
         }
 
-        // Register commands (Velocity CommandMeta)
+        // Commands
         CommandManager cm = proxy.getCommandManager();
-
         CommandMeta reportMeta = cm.metaBuilder("report").build();
         cm.register(reportMeta, new ReportCommand(this, reportManager, chatLogService, config));
 
@@ -95,42 +97,35 @@ public final class ReportSystem {
         CommandMeta historyMeta = cm.metaBuilder("reporthistory").build();
         cm.register(historyMeta, new ReportHistoryCommand(this, reportManager, config));
 
-        // (Optional) short alias for history
-        try {
-            CommandMeta rhMeta = cm.metaBuilder("rh").build();
-            cm.register(rhMeta, new ReportHistoryCommand(this, reportManager, config));
-        } catch (Throwable ignored) {
-            // If alias collides with another plugin, just ignore
-        }
-
         logger.info("ReportSystem enabled.");
     }
 
-    /** Hot-reload config and reapply to services. */
+    /** /reports reload */
     public void reload() {
         try {
             PluginConfig newCfg = new ConfigManager(dataDir).loadOrCreate();
             this.config = newCfg;
 
-            // Re-apply config to services that support it
-            this.reportManager.setConfig(newCfg);
-            this.chatLogService.setConfig(newCfg);
-            this.notifier.setConfig(newCfg);
+            reportManager.setConfig(newCfg);
+            chatLogService.setConfig(newCfg);
+            notifier.setConfig(newCfg);
 
-            // Restart HTTP server if toggle/port/base changed
-            if (httpServerService != null) {
-                httpServerService.stop();
+            // Restart auth-protected web server with new config
+            if (webServer != null) {
+                webServer.stop();
             }
-            this.httpServerService = new HttpServerService(this, newCfg);
             if (newCfg.httpServer != null && newCfg.httpServer.enabled) {
+                var root = dataDir.resolve(newCfg.htmlExportDir);
+                webServer = new WebServer(newCfg, logger, root, authService);
                 try {
-                    httpServerService.start();
+                    webServer.start();
                 } catch (IOException io) {
                     logger.warn("HTTP server failed to start after reload: {}", io.toString());
                 }
+            } else {
+                webServer = null;
             }
 
-            // Let staff know (respecting notifyPermission)
             proxy.getAllPlayers().forEach(p -> {
                 if (p.hasPermission(config.notifyPermission)) {
                     Text.msg(p, config.msg("reloaded", "ReportSystem reloaded."));
@@ -142,12 +137,8 @@ public final class ReportSystem {
         }
     }
 
-    // Accessors for services (used elsewhere)
     public ReportManager reports() { return reportManager; }
     public ChatLogService chatLogs() { return chatLogService; }
-    public HttpServerService httpServer() { return httpServerService; }
     public AuthService auth() { return authService; }
-
-    // Notifier hook used by commands & history
     public Notifier notifier() { return notifier; }
 }

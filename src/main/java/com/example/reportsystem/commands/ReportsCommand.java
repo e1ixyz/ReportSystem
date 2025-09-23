@@ -18,22 +18,11 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Staff /reports command.
- * Adds:
- *  - /reports auth       (issues a one-time login code + link)
- *  - /reports logoutall  (revokes all web sessions for the caller)
- * Enhancements:
- *  - Hover tooltips for all clickable text
- *  - Expanded view shows the server and includes "Jump to server" button
- */
 public class ReportsCommand implements SimpleCommand {
 
     private final ReportSystem plugin;
     private final ReportManager mgr;
     private PluginConfig config;
-
-    // For issuing and revoking web auth sessions
     private final AuthService auth;
 
     public ReportsCommand(ReportSystem plugin, ReportManager mgr, PluginConfig config, AuthService auth) {
@@ -80,11 +69,7 @@ public class ReportsCommand implements SimpleCommand {
                 }
                 mgr.close(id); mgr.save();
                 Text.msg(src, config.msg("closed","Closed report #%id%").replace("%id%", String.valueOf(id)));
-                if (plugin.notifier() != null) {
-                    try {
-                        // plugin.notifier().notifyClosed(r);
-                    } catch (Throwable ignored) {}
-                }
+                try { plugin.notifier().notifyClosed(r); } catch (Throwable ignored) {}
             }
             case "chat" -> {
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports chat <id>"); return; }
@@ -151,11 +136,7 @@ public class ReportsCommand implements SimpleCommand {
                 mgr.assign(id, staff);
                 Text.msg(src, config.msg("assigned","Assigned report #%id% to %assignee%")
                         .replace("%id%", String.valueOf(id)).replace("%assignee%", staff));
-                if (plugin.notifier() != null) {
-                    try {
-                        // plugin.notifier().notifyAssigned(r, staff);
-                    } catch (Throwable ignored) {}
-                }
+                try { plugin.notifier().notifyAssigned(r, staff); } catch (Throwable ignored) {}
             }
             case "unassign" -> {
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports unassign <id>"); return; }
@@ -171,11 +152,7 @@ public class ReportsCommand implements SimpleCommand {
                 }
                 mgr.unassign(id);
                 Text.msg(src, config.msg("unassigned","Unassigned report #%id%").replace("%id%", String.valueOf(id)));
-                if (plugin.notifier() != null) {
-                    try {
-                        // plugin.notifier().notifyUnassigned(r);
-                    } catch (Throwable ignored) {}
-                }
+                try { plugin.notifier().notifyUnassigned(r); } catch (Throwable ignored) {}
             }
             case "search" -> {
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports search <query> [open|closed|all]</yellow>"); return; }
@@ -203,18 +180,13 @@ public class ReportsCommand implements SimpleCommand {
                 Text.msg(src, config.msg("reloaded","ReportSystem reloaded."));
             }
 
-            /* ---------- NEW SUBCOMMANDS ---------- */
-
+            /* ---------- web auth ---------- */
             case "auth" -> {
                 if (!(src instanceof Player p)) {
                     Text.msg(src, "<red>Only players can request a login code.</red>");
                     return;
                 }
                 var code = auth.issueCodeFor(p);
-                if (code == null) {
-                    Text.msg(src, "<red>You don't have permission to request a login code.</red>");
-                    return;
-                }
                 String base =
                         (config.httpServer != null && config.httpServer.externalBaseUrl != null && !config.httpServer.externalBaseUrl.isBlank())
                                 ? config.httpServer.externalBaseUrl.replaceAll("/+$","")
@@ -228,7 +200,6 @@ public class ReportsCommand implements SimpleCommand {
                 Text.msg(src,
                         "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + link + "'>Open login</click></hover></aqua><gray>]</gray>");
             }
-
             case "logoutall" -> {
                 if (!(src instanceof Player p)) {
                     Text.msg(src, "<red>Only players can logout their sessions.</red>");
@@ -237,7 +208,6 @@ public class ReportsCommand implements SimpleCommand {
                 int n = auth.revokeAllFor(p.getUniqueId());
                 Text.msg(src, "<gray>Revoked <white>" + n + "</white> web session(s).</gray>");
             }
-
             default -> showPage(src, 1);
         }
     }
@@ -249,9 +219,7 @@ public class ReportsCommand implements SimpleCommand {
             return List.of("page", "view", "close", "chat", "assign", "unassign", "search", "reload", "auth", "logoutall");
         }
         switch (a[0].toLowerCase()) {
-            case "page" -> {
-                if (a.length == 1) return List.of("1", "2", "3");
-            }
+            case "page" -> { if (a.length == 1) return List.of("1", "2", "3"); }
             case "view", "close", "chat", "unassign" -> {
                 var ids = mgr.getOpenReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
                 if (a.length == 1) return ids;
@@ -269,19 +237,12 @@ public class ReportsCommand implements SimpleCommand {
                 if (a.length == 1) return List.of("<query>");
                 if (a.length == 2) return List.of("open", "closed", "all");
             }
-            case "auth" -> {
-                return List.of(); // no args
-            }
-            case "logoutall" -> {
-                return List.of(); // no args
-            }
+            default -> {}
         }
         return List.of();
     }
 
-    /* ---------------------------------------------------
-       Helpers
-       --------------------------------------------------- */
+    /* ---------------- helpers ---------------- */
 
     private void showPage(CommandSource src, int page) {
         List<Report> open = mgr.getOpenReportsDescending();
@@ -318,7 +279,7 @@ public class ReportsCommand implements SimpleCommand {
         src.sendMessage(nav);
     }
 
-    /** Expanded view for a single report. Includes server + Jump button. */
+    /** Expanded view: adds claim/unclaim with hover tips. */
     private void expand(CommandSource src, Report r) {
         // Header
         String header = config.msg("expanded-header","Report #%id% (%type% / %category%)")
@@ -327,13 +288,7 @@ public class ReportsCommand implements SimpleCommand {
                 .replace("%category%", r.categoryDisplay);
         Text.msg(src, header);
 
-        // Server line first
-        String serverName = (r.server == null || r.server.isBlank()) ? "UNKNOWN" : r.server;
-        String serverLine = config.msg("expanded-server-line", "<gray>Server:</gray> <white>%server%</white>")
-                .replace("%server%", serverName);
-        Text.msg(src, serverLine);
-
-        // Lines
+        // Body lines (unchanged structure)
         var lines = config.msgList("expanded-lines", List.of(
                 "<gray>Reported:</gray> <white>%target%</white> <gray>by</gray> <white>%player%</white>",
                 "<gray>When:</gray> <white>%timestamp%</white>",
@@ -355,24 +310,32 @@ public class ReportsCommand implements SimpleCommand {
                     .replace("%count%", String.valueOf(r.count))
                     .replace("%reasons%", reasons)
                     .replace("%status%", r.status == null ? "OPEN" : r.status.name())
-                    .replace("%assignee%", assignee)
-                    .replace("%server%", serverName);
+                    .replace("%assignee%", assignee);
             Text.msg(src, out);
         }
 
-        // Actions (Close / Chat Logs / Jump to server) with tooltips
-        String tipClose = config.msg("tip-close", "Close this report");
-        String tipChat  = config.msg("tip-chat", "View chat logs");
-        String tipJump  = config.msg("tip-jump-server", "Connect to this server");
+        // Actions: Close / Chat / Claim / Unclaim (with hover tooltips)
+        String tipClose   = config.msg("tip-close", "Close this report");
+        String tipChat    = config.msg("tip-chat", "View chat logs");
+        String tipClaim   = config.msg("tip-claim", "Assign to yourself");
+        String tipUnclaim = config.msg("tip-unclaim", "Remove your claim");
 
-        String actions = "<gray>[</gray><green><hover:show_text:'"+Text.escape(tipClose)+"'><click:run_command:'/reports close "+r.id+"'>Close</click></hover></green><gray>]</gray> "
-                + "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipChat)+"'><click:run_command:'/reports chat "+r.id+"'>Chat Logs</click></hover></aqua><gray>]</gray>";
+        String claimBtn = "";
+        String unclaimBtn = "";
 
-        if (r.server != null && !r.server.isBlank() && !"UNKNOWN".equalsIgnoreCase(r.server)) {
-            String jumpCmdTemplate = config.msg("jump-command-template", "/server %server%");
-            String jumpCmd = jumpCmdTemplate.replace("%server%", r.server);
-            actions += " <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipJump)+"'><click:run_command:'"+Text.escape(jumpCmd)+"'>Jump to server</click></hover></aqua><gray>]</gray>";
+        if (src instanceof Player p) {
+            String you = p.getUsername();
+            if (r.assignee == null || r.assignee.isBlank()) {
+                claimBtn = " <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipClaim)+"'><click:run_command:'/reports assign "+r.id+" "+you+"'>Claim</click></hover></aqua><gray>]</gray>";
+            } else if (r.assignee.equalsIgnoreCase(you)) {
+                unclaimBtn = " <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipUnclaim)+"'><click:run_command:'/reports unassign "+r.id+"'>Unclaim</click></hover></aqua><gray>]</gray>";
+            }
         }
+
+        String actions = ""
+                + "<gray>[</gray><green><hover:show_text:'"+Text.escape(tipClose)+"'><click:run_command:'/reports close "+r.id+"'>Close</click></hover></green><gray>]</gray> "
+                + "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipChat)+"'><click:run_command:'/reports chat "+r.id+"'>Chat Logs</click></hover></aqua><gray>]</gray>"
+                + claimBtn + unclaimBtn;
 
         Text.msg(src, actions);
     }
