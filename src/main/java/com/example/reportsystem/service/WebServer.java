@@ -247,40 +247,51 @@ public class WebServer {
         return ret;
     }
 
+    /**
+     * Build the HTML for the login page WITHOUT using String.format / formatted,
+     * so % characters in CSS are safe.
+     */
     private String loginForm(String error, String ret) {
-        String err = (error == null) ? "" : "<div style='color:#c33;margin-bottom:10px;'>" + escape(error) + "</div>";
-        String hidden = (ret == null || ret.isBlank()) ? "" :
-                "<input type='hidden' name='return' value='" + escape(ret) + "'>";
-        return """
-        <!doctype html>
-        <html><head><meta charset="utf-8"><title>ReportSystem Login</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-        body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;background:#0f1115;color:#e6e6e6;display:flex;min-height:100vh;align-items:center;justify-content:center}
-        .card{background:#151924;border:1px solid #252b3a;border-radius:14px;padding:22px;max-width:420px;width:92%}
-        label{display:block;margin:8px 0 4px;color:#aab; font-size:14px}
-        input{width:100%;padding:10px;border-radius:10px;border:1px solid #3a4157;background:#0f1320;color:#fff}
-        button{margin-top:14px;width:100%;padding:10px 12px;border-radius:10px;background:#2563eb;border:0;color:#fff;font-weight:600;cursor:pointer}
-        a{color:#9cf}
-        </style></head>
-        <body><div class="card">
-          <h2>ReportSystem Login</h2>
-          %s
-          <p>Run <code>/reports auth</code> in-game to get a one-time code.</p>
-          <form method="post" action="/login">
-            %s
-            <label for="name">Minecraft Name (optional)</label>
-            <input id="name" name="name" placeholder="Your IGN">
-            <label for="code">One-time Code</label>
-            <input id="code" name="code" placeholder="e.g. 123456" autofocus>
-            <button type="submit">Sign in</button>
-          </form>
-          <p style="margin-top:12px;"><a href="/logout">Logout</a></p>
-        </div></body></html>
-        """.formatted(err, hidden);
+        String errBlock = (error == null)
+                ? ""
+                : "<div style='color:#c33;margin-bottom:10px;'>" + escape(error) + "</div>";
+        String hiddenReturn = (ret == null || ret.isBlank())
+                ? ""
+                : "<input type='hidden' name='return' value='" + escape(ret) + "'>";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<!doctype html>\n")
+          .append("<html><head><meta charset=\"utf-8\"><title>ReportSystem Login</title>\n")
+          .append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
+          .append("<style>\n")
+          .append("body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;background:#0f1115;color:#e6e6e6;display:flex;min-height:100vh;align-items:center;justify-content:center}\n")
+          .append(".card{background:#151924;border:1px solid #252b3a;border-radius:14px;padding:22px;max-width:420px;width:92%}\n")
+          .append("label{display:block;margin:8px 0 4px;color:#aab; font-size:14px}\n")
+          .append("input{width:100%;padding:10px;border-radius:10px;border:1px solid #3a4157;background:#0f1320;color:#fff}\n")
+          .append("button{margin-top:14px;width:100%;padding:10px 12px;border-radius:10px;background:#2563eb;border:0;color:#fff;font-weight:600;cursor:pointer}\n")
+          .append("a{color:#9cf}\n")
+          .append("</style></head>\n")
+          .append("<body><div class=\"card\">\n")
+          .append("<h2>ReportSystem Login</h2>\n")
+          .append(errBlock).append("\n")
+          .append("<p>Run <code>/reports auth</code> in-game to get a one-time code.</p>\n")
+          .append("<form method=\"post\" action=\"/login\">\n")
+          .append(hiddenReturn).append("\n")
+          .append("<label for=\"name\">Minecraft Name (optional)</label>\n")
+          .append("<input id=\"name\" name=\"name\" placeholder=\"Your IGN\">\n")
+          .append("<label for=\"code\">One-time Code</label>\n")
+          .append("<input id=\"code\" name=\"code\" placeholder=\"e.g. 123456\" autofocus>\n")
+          .append("<button type=\"submit\">Sign in</button>\n")
+          .append("</form>\n")
+          .append("<p style=\"margin-top:12px;\"><a href=\"/logout\">Logout</a></p>\n")
+          .append("</div></body></html>\n");
+        return sb.toString();
     }
 
     private static String escape(String s) {
-        return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;");
+        return s.replace("&","&amp;")
+                .replace("<","&lt;")
+                .replace(">","&gt;")
+                .replace("\"","&quot;");
     }
 }
