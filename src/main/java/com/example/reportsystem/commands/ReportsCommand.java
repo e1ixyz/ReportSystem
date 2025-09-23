@@ -182,9 +182,14 @@ public class ReportsCommand implements SimpleCommand {
                 String expandTip = config.msg("tip-expand", "Click to expand");
                 for (int i=0;i<limit;i++) {
                     Report r = results.get(i);
-                    String line = "<white>#"+r.id+"</white> <gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray> <white>"+r.reported+"</white>"
+                    String targetSeg   = " <gray>Target:</gray> <white>" + (r.reported == null ? "UNKNOWN" : r.reported) + "</white>";
+                    String assignedSeg = (r.assignee != null && !r.assignee.isBlank())
+                            ? " <gray>Assigned:</gray> <white>" + r.assignee + "</white>"
+                            : "";
+                    String line = "<white>#"+r.id+"</white> <gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray>"
+                            + targetSeg
                             + colorStackBadge(r.count)
-                            + (r.assignee != null ? " <gray>[</gray><white>"+r.assignee+"</white><gray>]</gray>" : "")
+                            + assignedSeg
                             + " <gray>[</gray><aqua><hover:show_text:'"+Text.escape(expandTip)+"'><click:run_command:'/reports view "+r.id+"'>expand</click></hover></aqua><gray>]</gray>";
                     Text.msg(src, line);
                     shown++;
@@ -233,7 +238,7 @@ public class ReportsCommand implements SimpleCommand {
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
-                // If already assigned to someone else, allow reassign to me (your original behavior kept)
+                // Reassign to me (or assign if unassigned)
                 mgr.assign(id, p.getUsername());
                 Text.msg(src, "<gray>Assigned report <white>#"+id+"</white> to you.</gray>");
             }
@@ -248,7 +253,6 @@ public class ReportsCommand implements SimpleCommand {
                     Text.msg(src, config.msg("already-unassigned","Report #%id% is not assigned.").replace("%id%", String.valueOf(id)));
                     return;
                 }
-                // Only unassign if you are the assignee (cleaner logic)
                 if (!p.getUsername().equalsIgnoreCase(r.assignee)) {
                     Text.msg(src, "<red>You are not the assignee for #"+id+".</red>");
                     return;
@@ -312,12 +316,15 @@ public class ReportsCommand implements SimpleCommand {
 
         String expandTip = config.msg("tip-expand", "Click to expand");
         for (Report r : Pagination.paginate(open, per, page)) {
-            String assignee = r.assignee != null ? " <gray>[</gray><white>"+r.assignee+"</white><gray>]</gray>" : "";
+            String targetSeg   = " <gray>Target:</gray> <white>" + (r.reported == null ? "UNKNOWN" : r.reported) + "</white>";
+            String assignedSeg = (r.assignee != null && !r.assignee.isBlank())
+                    ? " <gray>Assigned:</gray> <white>" + r.assignee + "</white>"
+                    : "";
             String line = "<white>#"+r.id+"</white> "
-                    + "<gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray> "
-                    + "<white>"+r.reported+"</white>"
+                    + "<gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray>"
+                    + targetSeg
                     + colorStackBadge(r.count)
-                    + assignee
+                    + assignedSeg
                     + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(expandTip)+"'><click:run_command:'/reports view "+r.id+"'>expand</click></hover></aqua><gray>]</gray>";
             Text.msg(src, line);
         }
@@ -333,6 +340,7 @@ public class ReportsCommand implements SimpleCommand {
         src.sendMessage(nav);
     }
 
+    /** Expanded view for a single report, with Back / Close / Chat / Jump / Assign buttons. */
     private void expand(CommandSource src, Report r) {
         String header = config.msg("expanded-header","Report #%id% (%type% / %category%)")
                 .replace("%id%", String.valueOf(r.id))
@@ -371,6 +379,7 @@ public class ReportsCommand implements SimpleCommand {
             Text.msg(src, out);
         }
 
+        String tipBack  = config.msg("tip-back", "Back to list");
         String tipClose = config.msg("tip-close", "Close this report");
         String tipChat  = config.msg("tip-chat", "View chat logs");
         String tipJump  = config.msg("tip-jump-server", "Connect to this server");
@@ -379,6 +388,8 @@ public class ReportsCommand implements SimpleCommand {
         String jumpCmd = jumpCmdTemplate.replace("%server%", serverName);
 
         StringBuilder actions = new StringBuilder();
+        actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipBack))
+                .append("'><click:run_command:'/reports page 1'>Back</click></hover></aqua><gray>]</gray> ");
         actions.append("<gray>[</gray><green><hover:show_text:'").append(Text.escape(tipClose))
                 .append("'><click:run_command:'/reports close ").append(r.id).append("'>Close</click></hover></green><gray>]</gray> ");
         actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipChat))
@@ -429,12 +440,14 @@ public class ReportsCommand implements SimpleCommand {
         try { return Long.parseLong(s); } catch (Exception e) { return def; }
     }
 
+    /** Build a public URL to the exported HTML page if configured (cleans duplicate slashes). */
     private String buildPublicLinkFor(Report r) {
         String base = pickBaseUrl(config);
         if (base.isBlank()) return null;
         return joinUrl(base, "/" + r.id + "/index.html");
     }
 
+    /** Prefer publicBaseUrl, then httpServer.externalBaseUrl. Strips trailing slashes. */
     private static String pickBaseUrl(PluginConfig c) {
         String a = (c.publicBaseUrl == null) ? "" : c.publicBaseUrl.trim();
         String b = (c.httpServer != null && c.httpServer.externalBaseUrl != null)
@@ -444,6 +457,7 @@ public class ReportsCommand implements SimpleCommand {
         return base;
     }
 
+    /** Join base + path without doubling “/” or appending /login twice. */
     private static String joinUrl(String base, String path) {
         if (base == null || base.isBlank()) {
             return (path == null || path.isBlank()) ? "/" : (path.startsWith("/") ? path : "/" + path);
@@ -458,6 +472,7 @@ public class ReportsCommand implements SimpleCommand {
         return base + "/" + p;
     }
 
+    /** Infer server from newest chat message (falls back to UNKNOWN). */
     private String inferServer(Report r) {
         if (r == null || r.chat == null || r.chat.isEmpty()) return "UNKNOWN";
         return r.chat.stream()
