@@ -9,15 +9,38 @@ reports-per-page: 10
 staff-permission: "reportsystem.reports"
 notify-permission: "reportsystem.notify"
 
-# Chat log viewing safety (added in v2.1)
-# Limits for inline previews to avoid client decode errors.
+# Inline chat preview safety (used when export-html-chatlog=false)
 preview-lines: 10
 preview-line-max-chars: 200
 
-# Public base URL for exported HTML logs (optional, added in v2.1).
-# If set (http/https), staff will receive a clickable browser link instead of a local file path.
-# Example: "https://reports.example.com"
+# If set, http(s) links are used for exported logs
 public-base-url: ""
+
+# Priority sorting of open reports
+priority-sorting: true
+tie-breaker: "newest"     # or "oldest"
+
+# Stack count thresholds -> badge color
+stack-thresholds:
+  yellow: 3
+  gold: 5
+  red: 10
+  dark-red: 15
+
+# Colors used for (xN) badge; can be any MiniMessage color tag
+stack-colors:
+  yellow: "<yellow>"
+  gold: "<gold>"
+  red: "<red>"
+  dark-red: "<dark_red>"
+
+# Optional embedded HTTP server to serve html-logs (clickable links without a domain)
+http-server:
+  enabled: false
+  external-base-url: "http://YOUR_PROXY_IP:8085"
+  bind: "0.0.0.0"
+  port: 8085
+  base-path: "/"
 
 discord:
   enabled: false
@@ -28,12 +51,14 @@ discord:
 
 messages:
   prefix: "<gray>[<aqua>ReportSystem</aqua>]</gray> "
+
   no-permission: "<red>You don't have permission.</red>"
   usage-report: "<yellow>Usage:</yellow> /report <type> <category> <target|reason...> <reason...>"
   invalid-type: "<red>Unknown report type:</red> <white>%type%</white>"
   invalid-category: "<red>Unknown category:</red> <white>%category%</white>"
   self-report-denied: "<red>You cannot report yourself.</red>"
   player-not-found: "<red>Player not found:</red> <white>%target%</white>"
+
   report-filed: "<green>Report filed!</green> <gray>(ID:</gray> <white>#%id%</white><gray>)</gray>"
   report-stacked: "<green>Report stacked</green> into <white>#%id%</white> <gray>(now x%count%)</gray>"
   open-count: "<gray>Open reports:</gray> <white>%count%</white>"
@@ -64,8 +89,18 @@ messages:
   # Assign / Search
   assigned: "<green>Assigned report #</green><white>%id%</white><green> to </green><white>%assignee%</white><gray>.</gray>"
   unassigned: "<green>Unassigned report #</green><white>%id%</white><gray>.</gray>"
+  already-unassigned: "Report #%id% is not assigned."
   search-header: "<gray>Search:</gray> <white>%query%</white> <gray>(%scope%)</gray>"
   search-empty: "<yellow>No matching reports.</yellow>"
+
+  # Tooltips (hover text) for buttons
+  tip-expand: "Click to expand"
+  tip-prev: "Previous page"
+  tip-next: "Next page"
+  tip-assign-self: "Assign to yourself"
+  tip-unassign: "Remove assignee"
+  tip-open-browser: "Open in browser"
+  tip-copy-path: "Copy local path"
 
 # Dynamic report types and categories
 report-types:

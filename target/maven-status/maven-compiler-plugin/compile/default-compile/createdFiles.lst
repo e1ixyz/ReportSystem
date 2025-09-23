@@ -4,6 +4,7 @@ com/example/reportsystem/config/PluginConfig.class
 com/example/reportsystem/util/Text.class
 com/example/reportsystem/commands/ReportHistoryCommand.class
 com/example/reportsystem/model/Report.class
+com/example/reportsystem/service/HttpServerService.class
 com/example/reportsystem/model/ReportType.class
 com/example/reportsystem/service/HtmlExporter.class
 com/example/reportsystem/service/Notifier.class
@@ -16,4 +17,6 @@ com/example/reportsystem/service/ChatLogService.class
 com/example/reportsystem/model/ReportStatus.class
 com/example/reportsystem/util/Pagination.class
 com/example/reportsystem/config/PluginConfig$ReportTypeDef.class
+com/example/reportsystem/service/HttpServerService$1.class
+com/example/reportsystem/config/PluginConfig$HttpServerConfig.class
 com/example/reportsystem/config/ConfigManager.class
