@@ -10,6 +10,7 @@ import java.util.Map;
 
 /**
  * Runtime config bag with sensible defaults.
+ * NOTE: If you have a separate YAML loader, keep it. This class only holds fields + defaults.
  */
 public class PluginConfig {
     // Core
@@ -19,48 +20,48 @@ public class PluginConfig {
     public String htmlExportDir = "html-logs";
 
     public int reportsPerPage = 10;
-    public String staffPermission = "reportsystem.reports";
+    public String staffPermission = "reportsystem.reports"; // general staff
+    public String adminPermission = "reportsystem.admin";   // admin-only ops (reload, logoutall, force claim)
+    public String forceClaimPermission = "reportsystem.forceclaim"; // separate perm (admin implies force)
+
     public String notifyPermission = "reportsystem.notify";
-
-    // Report cooldown (players WITHOUT staffPermission are throttled)
-    public int reportCooldownSeconds = 60; // default 1 minute
-
-    // Permission to force-claim reports already claimed by another staff member
-    public String forceClaimPermission = "reportsystem.forceclaim";
 
     // Inline preview safety
     public int previewLines = 10;
     public int previewLineMaxChars = 200;
 
-    // Public web base (optional)
+    // Optional public URL (preferred) when building links. If empty, we’ll fall back to http-server.externalBaseUrl.
     public String publicBaseUrl = "";
 
-    // Legacy priority toggles (kept for back-compat)
-    public boolean prioritySorting = true;     // still used as a master switch
-    public String tieBreaker = "newest";       // "newest" or "oldest"
+    // Legacy priority fallback
+    public boolean prioritySorting = true;     // stacked first (legacy)
+    public String tieBreaker = "newest";       // "newest" or "oldest" (legacy)
 
     // Stack badge thresholds/colors
     public int threshYellow = 3;
-    public int threshGold = 5;
-    public int threshRed = 10;
-    public int threshDarkRed = 15;
+    public int threshGold   = 5;
+    public int threshRed    = 10;
+    public int threshDarkRed= 15;
 
     public String colorYellow = "<yellow>";
-    public String colorGold = "<gold>";
-    public String colorRed = "<red>";
-    public String colorDarkRed = "<dark_red>";
+    public String colorGold   = "<gold>";
+    public String colorRed    = "<red>";
+    public String colorDarkRed= "<dark_red>";
 
-    // Optional embedded HTTP server
+    // Embedded HTTP server (served behind your tunnel / reverse proxy)
     public HttpServerConfig httpServer = new HttpServerConfig();
 
     // Discord webhook
     public DiscordConfig discord = new DiscordConfig();
 
-    // Web auth options (used by WebServer/AuthService)
+    // Web auth
     public AuthConfig auth = new AuthConfig();
 
-    // NEW: Multi-factor priority settings
-    public Priority priority = Priority.defaultsForLargeNetwork();
+    // Report cooldown
+    public CooldownConfig cooldown = new CooldownConfig();
+
+    // Multi-factor priority scoring
+    public PriorityConfig priority = new PriorityConfig();
 
     // Messages & dynamic types
     public Map<String, Object> messages = new LinkedHashMap<>();
@@ -77,7 +78,8 @@ public class PluginConfig {
         return v instanceof List<?> list ? (List<String>) list : def;
     }
 
-    // Nested configs
+    /* ================= nested configs ================= */
+
     public static class ReportTypeDef {
         public String display;
         public Map<String, String> categories = new LinkedHashMap<>();
@@ -93,74 +95,75 @@ public class PluginConfig {
 
     public static class HttpServerConfig {
         public boolean enabled = false;
+        /** Example: "https://reports.example.com" (no trailing slash) */
         public String externalBaseUrl = "";
         public String bind = "0.0.0.0";
         public int port = 8085;
+        /** Mount path inside the tiny server (default "/"). */
         public String basePath = "/";
     }
 
+    /** Auth used by WebServer/AuthService/ReportsCommand */
     public static class AuthConfig {
         public boolean enabled = true;
         public String cookieName = "rsid";
-        public int sessionTtlMinutes = 60 * 24;
+        /** minutes; sliding session extension */
+        public int sessionTtlMinutes = 60 * 24; // 24h
+        /** seconds for one-time code validity */
         public int codeTtlSeconds = 120;
+        /** digits in the one-time code */
         public int codeLength = 6;
+        /** signing secret */
         public String secret = "change-me";
+        /** allow unauthenticated paths when auth is enabled */
         public List<String> openPaths = List.of("/login", "/favicon.ico");
+        /** require staff perm to request codes via /reports auth */
         public boolean requirePermission = true;
     }
 
-    /** NEW: Multi-factor priority config (enable/disable & weight each factor). */
-    public static class Priority {
+    /** Cooldown for filing reports (players without staffPermission are throttled) */
+    public static class CooldownConfig {
+        public boolean enabled = true;
+        public int seconds = 60; // default 1 minute
+    }
+
+    /**
+     * Multi-factor priority configuration.
+     *
+     * We compute a score per open report:
+     *   score = w_count*Fcount + w_recency*Frecency + w_chat*Fchat + w_type*Ftype
+     *
+     * - Fcount: raw stack count (>=1). Higher = more reports about same target.
+     * - Frecency: 1 / (1 + ageHours)  (fresh reports score higher; bounded in [0,1]).
+     * - Fchat: 1 if chat messages exist, else 0 (chat-evidence bumps urgency).
+     * - Ftype: type/category boost: typeBoost(typeId) + categoryBoost(categoryId)
+     *
+     * All factors can be toggled individually and carry weights (doubles).
+     */
+    public static class PriorityConfig {
         public boolean enabled = true;
 
-        // Factor toggles
-        public boolean useCount = true;
-        public boolean useRecency = true;
-        public boolean useSeverity = true;
-        public boolean useEvidence = true;
-        public boolean useUnassigned = true;
-        public boolean useAging = true;
-        public boolean useSlaBreach = true;
+        public Factor count   = new Factor(true, 1.0);  // strongest default signal
+        public Factor recency = new Factor(true, 0.7);  // recent > old
+        public Factor chat    = new Factor(true, 0.3);  // evidence available
+        public Factor type    = new Factor(true, 0.4);  // domain-specific boosting
 
-        // Weights ("rankings")
-        public double wCount = 2.0;
-        public double wRecency = 2.0;
-        public double wSeverity = 3.0;
-        public double wEvidence = 1.0;
-        public double wUnassigned = 0.5;
-        public double wAging = 1.0;
-        public double wSlaBreach = 4.0;
-
-        // Decay constant for recency (ms)
-        public long tauMs = 15 * 60_000L; // 15 minutes
-
-        // Per (type/category) overrides
-        public Map<String, Double> severityByKey = new LinkedHashMap<>(); // "player/cheat" -> 3.0
-        public Map<String, Integer> slaMinutes = new LinkedHashMap<>();   // "server/crash" -> 2
-
-        public static Priority defaultsForLargeNetwork() {
-            Priority p = new Priority();
-            // Sensible defaults for busy networks:
-            p.enabled = true;
-            p.useCount = true;      p.wCount = 2.0;
-            p.useRecency = true;    p.wRecency = 2.0;
-            p.useSeverity = true;   p.wSeverity = 3.0;
-            p.useEvidence = true;   p.wEvidence = 1.0;
-            p.useUnassigned = true; p.wUnassigned = 0.5;
-            p.useAging = true;      p.wAging = 1.0;
-            p.useSlaBreach = true;  p.wSlaBreach = 4.0;
-            p.tauMs = 15 * 60_000L;
-
-            // Example baselines (edit in config.yml)
-            p.severityByKey.put("player/cheat", 3.0);
-            p.severityByKey.put("server/crash", 2.5);
-            p.severityByKey.put("player/chat", 1.0);
-
-            p.slaMinutes.put("player/cheat", 5);
-            p.slaMinutes.put("server/crash", 2);
-            return p;
-        }
+        /** Optional boosts; keys are lowercase typeId/categoryId */
+        public Map<String, Double> typeBoosts = Map.of(
+                "player", 0.6  // player reports are typically highest priority
+        );
+        public Map<String, Double> categoryBoosts = Map.of(
+                "cheating", 0.6,
+                "dupe",     0.5,
+                "grief",    0.4,
+                "chat",     0.2
+        );
+    }
+    public static class Factor {
+        public boolean enabled;
+        public double weight;
+        public Factor() {}
+        public Factor(boolean enabled, double weight) { this.enabled = enabled; this.weight = weight; }
     }
 
     /* -------------------- minimal loader stubs -------------------- */

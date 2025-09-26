@@ -16,11 +16,11 @@ public class Report {
     public int count;
     public ReportStatus status = ReportStatus.OPEN;
 
-    /** backend/server where the report was filed (optional) */
-    public String server;
-
     /** Optional assignee username (staff) */
     public String assignee = null;
+
+    /** NEW: where the report was filed from (proxy server name) */
+    public String sourceServer = null;
 
     /** Chat messages captured for chat reports */
     public List<ChatMessage> chat = new ArrayList<>();

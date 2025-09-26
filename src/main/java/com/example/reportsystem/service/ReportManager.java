@@ -14,6 +14,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,7 +22,17 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
- * Thread-safe report manager with priority scoring and persistence.
+ * ReportManager
+ *
+ * - Thread-safe in-memory store of reports
+ * - Persists each report as YAML: <dataDir>/reports/<id>.yml
+ * - Stacking by (reported + type + category) within config.stackWindowSeconds
+ * - Multi-factor priority scoring (config.priority.*). Falls back to legacy if disabled.
+ * - Closed reports ordering tracked via internal closedAt map (Report has no closedAt field)
+ * - Search by simple query
+ * - Assign/Unassign/Close/Reopen
+ * - Claiming (with force-claim permission checked by caller)
+ * - Chat append support for ChatLogService
  */
 public class ReportManager {
 
@@ -33,9 +44,9 @@ public class ReportManager {
     private final Map<Long, Report> reports = new ConcurrentHashMap<>();
     private final AtomicLong nextId = new AtomicLong(1);
 
-    /** last "activity" timestamp used for stacking-window and recency */
+    /** last "activity" timestamp we use for stacking-window checks */
     private final Map<Long, Long> lastUpdateMillis = new ConcurrentHashMap<>();
-    /** closed timestamp per id (Report has no closedAt field) */
+    /** closed timestamp per id (since Report doesn't have a closedAt field) */
     private final Map<Long, Long> closedAtById = new ConcurrentHashMap<>();
 
     private final Yaml yaml = new Yaml();
@@ -57,7 +68,13 @@ public class ReportManager {
         }
     }
 
-    public void setConfig(PluginConfig cfg) { this.config = cfg; }
+    /* =========================
+              PUBLIC API
+       ========================= */
+
+    public void setConfig(PluginConfig cfg) {
+        this.config = cfg;
+    }
 
     /** Resolve dynamic type/category from config; null if invalid. */
     public ReportType resolveType(String typeId, String categoryId) {
@@ -70,8 +87,10 @@ public class ReportManager {
         return new ReportType(typeId, typeDisplay, categoryId, catDisplay);
     }
 
-    // Tab-complete helpers
-    public List<String> typeIds() { return new ArrayList<>(config.reportTypes.keySet()); }
+    /** Tab-complete helpers. */
+    public List<String> typeIds() {
+        return new ArrayList<>(config.reportTypes.keySet());
+    }
     public List<String> categoryIdsFor(String typeId) {
         if (typeId == null) return List.of();
         var tdef = config.reportTypes.get(typeId.toLowerCase(Locale.ROOT));
@@ -79,75 +98,32 @@ public class ReportManager {
         return new ArrayList<>(tdef.categories.keySet());
     }
 
+    /** Fetch by id. */
     public Report get(long id) { return reports.get(id); }
 
-    /* ====================== Priority ======================= */
-
-    private double priorityScore(Report r) {
-        // If new system disabled, mimic legacy ordering (count first, then tie-breaker time)
-        if (!config.prioritySorting || config.priority == null || !config.priority.enabled) {
-            long t = r.timestamp;
-            return (r.count * 1_000_000d) + (config.tieBreaker.equalsIgnoreCase("oldest") ? -t : t);
-        }
-
-        long now = System.currentTimeMillis();
-        long last = lastUpdateMillis.getOrDefault(r.id, r.timestamp);
-        long ageMs = Math.max(1L, now - r.timestamp);
-        long idleMs = Math.max(0L, now - last);
-
-        double score = 0.0;
-
-        // Count (diminishing returns)
-        if (config.priority.useCount) {
-            double term = Math.log1p(Math.max(1, r.count));
-            score += config.priority.wCount * term;
-        }
-        // Recency / velocity
-        if (config.priority.useRecency) {
-            double recency = Math.exp(-1.0 * idleMs / Math.max(1.0, config.priority.tauMs)); // 0..1
-            double vel = recency * Math.log1p(Math.max(1, r.count));
-            score += config.priority.wRecency * vel;
-        }
-        // Severity (per type/category)
-        if (config.priority.useSeverity) {
-            String key = (r.typeId == null ? "" : r.typeId.toLowerCase()) + "/" +
-                         (r.categoryId == null ? "" : r.categoryId.toLowerCase());
-            double sev = config.priority.severityByKey.getOrDefault(key, 1.0);
-            score += config.priority.wSeverity * sev;
-        }
-        // Evidence (chat captured)
-        if (config.priority.useEvidence) {
-            double has = (r.chat != null && !r.chat.isEmpty()) ? 1.0 : 0.0;
-            score += config.priority.wEvidence * has;
-        }
-        // Unassigned bump
-        if (config.priority.useUnassigned) {
-            double unassigned = (r.assignee == null || r.assignee.isBlank()) ? 1.0 : 0.0;
-            score += config.priority.wUnassigned * unassigned;
-        }
-        // Aging (slow increase over time)
-        if (config.priority.useAging) {
-            double aging = Math.log1p(ageMs / 60000.0); // minutes
-            score += config.priority.wAging * aging;
-        }
-        // SLA breach
-        if (config.priority.useSlaBreach) {
-            String key = (r.typeId == null ? "" : r.typeId.toLowerCase()) + "/" +
-                         (r.categoryId == null ? "" : r.categoryId.toLowerCase());
-            int sla = config.priority.slaMinutes.getOrDefault(key, 0);
-            boolean breached = (sla > 0) && (ageMs >= sla * 60_000L);
-            if (breached) score += config.priority.wSlaBreach;
-        }
-
-        return score;
+    /** All open reports (unsorted). */
+    public List<Report> getOpen() {
+        return reports.values().stream().filter(Report::isOpen).toList();
     }
 
-    /** Open reports sorted by multi-factor priority score, then time tie-breaker. */
+    /** Open reports sorted by multi-factor priority score, then timestamp (desc). */
     public List<Report> getOpenReportsDescending() {
-        List<Report> list = reports.values().stream().filter(Report::isOpen).collect(Collectors.toList());
+        List<Report> list = getOpen();
+        if (config.priority != null && config.priority.enabled) {
+            list.sort((a, b) -> {
+                double sa = score(a);
+                double sb = score(b);
+                int cmp = Double.compare(sb, sa); // desc
+                if (cmp != 0) return cmp;
+                return Long.compare(b.timestamp, a.timestamp); // tie: newer first
+            });
+            return list;
+        }
+
+        // Legacy behavior (count desc, then time)
         list.sort((a, b) -> {
-            int byScore = Double.compare(priorityScore(b), priorityScore(a));
-            if (byScore != 0) return byScore;
+            int byCount = Integer.compare(b.count, a.count);
+            if (byCount != 0) return byCount;
             boolean newest = !"oldest".equalsIgnoreCase(config.tieBreaker);
             return newest ? Long.compare(b.timestamp, a.timestamp)
                           : Long.compare(a.timestamp, b.timestamp);
@@ -155,9 +131,19 @@ public class ReportManager {
         return list;
     }
 
-    /** Closed reports newest-closed first. */
+    /** Filtered by type/category, sorted by priority/recency. */
+    public List<Report> getOpenReportsFiltered(String typeId, String categoryId) {
+        return getOpenReportsDescending().stream()
+                .filter(r -> typeId == null || r.typeId.equalsIgnoreCase(typeId))
+                .filter(r -> categoryId == null || r.categoryId.equalsIgnoreCase(categoryId))
+                .toList();
+    }
+
+    /** Closed reports newest-closed first (tracked via closedAtById; fallback to timestamp). */
     public List<Report> getClosedReportsDescending() {
-        List<Report> list = reports.values().stream().filter(r -> !r.isOpen()).collect(Collectors.toList());
+        List<Report> list = reports.values().stream()
+                .filter(r -> !r.isOpen())
+                .collect(Collectors.toList());
         list.sort((a, b) -> {
             long ca = closedAtById.getOrDefault(a.id, a.timestamp);
             long cb = closedAtById.getOrDefault(b.id, b.timestamp);
@@ -171,9 +157,9 @@ public class ReportManager {
         String q = query == null ? "" : query.toLowerCase(Locale.ROOT);
         boolean wantOpen, wantClosed;
         switch (scope == null ? "open" : scope.toLowerCase(Locale.ROOT)) {
-            case "all" -> { wantOpen = true; wantClosed = true; }
+            case "all"    -> { wantOpen = true; wantClosed = true; }
             case "closed" -> { wantOpen = false; wantClosed = true; }
-            default -> { wantOpen = true; wantClosed = false; }
+            default       -> { wantOpen = true; wantClosed = false; }
         }
         return reports.values().stream()
                 .filter(r -> (r.isOpen() && wantOpen) || (!r.isOpen() && wantClosed))
@@ -182,8 +168,8 @@ public class ReportManager {
                 .collect(Collectors.toList());
     }
 
-    /** Create or stack a report. */
-    public synchronized Report fileOrStack(String reporter, String reported, ReportType rt, String reason) {
+    /** Create or stack a report. Includes sourceServer (may be null). */
+    public synchronized Report fileOrStack(String reporter, String reported, ReportType rt, String reason, String sourceServer) {
         long now = System.currentTimeMillis();
 
         Report target = findStackTarget(reported, rt);
@@ -196,6 +182,10 @@ public class ReportManager {
                     target.reason = (target.reason == null || target.reason.isBlank())
                             ? reason
                             : target.reason + " | " + reason;
+                }
+                if (sourceServer != null && !sourceServer.isBlank()) {
+                    // store the most recent source if you like; or keep first
+                    target.sourceServer = sourceServer;
                 }
                 lastUpdateMillis.put(target.id, now);
                 trySave(target);
@@ -217,6 +207,7 @@ public class ReportManager {
         r.timestamp = now;
         r.status = ReportStatus.OPEN;
         r.assignee = null;
+        r.sourceServer = safeStr(sourceServer);
 
         reports.put(id, r);
         lastUpdateMillis.put(id, now);
@@ -225,7 +216,7 @@ public class ReportManager {
         return r;
     }
 
-    /** Append a chat message to a report. */
+    /** Append a chat message to a report (used by ChatLogService). */
     public void appendChat(Long id, ChatMessage msg) {
         if (id == null || msg == null) return;
         Report r = reports.get(id);
@@ -236,36 +227,13 @@ public class ReportManager {
         lastUpdateMillis.put(id, System.currentTimeMillis());
     }
 
-    /** Unconditional assign (kept for back-compat). */
+    /** Assign/Unassign. */
     public void assign(long id, String staff) {
         Report r = reports.get(id);
         if (r == null) return;
         r.assignee = safeStr(staff);
         trySave(r);
     }
-
-    /** Safer assign helper: returns true if assignment changed or idempotent; false if blocked. */
-    public boolean assignIfAllowed(long id, String staff, boolean force) {
-        Report r = reports.get(id);
-        if (r == null) return false;
-        String who = safeStr(staff);
-        if (r.assignee == null || r.assignee.isBlank()) {
-            r.assignee = who;
-            trySave(r);
-            return true;
-        }
-        if (r.assignee.equalsIgnoreCase(who)) {
-            // already assigned to same person — idempotent OK
-            return true;
-        }
-        if (force) {
-            r.assignee = who;
-            trySave(r);
-            return true;
-        }
-        return false;
-    }
-
     public void unassign(long id) {
         Report r = reports.get(id);
         if (r == null) return;
@@ -275,6 +243,27 @@ public class ReportManager {
     public boolean isAssigned(long id) {
         Report r = reports.get(id);
         return r != null && r.assignee != null && !r.assignee.isBlank();
+    }
+
+    /** Claim an unassigned report. If already assigned and force=false, return false. If force=true, overwrite. */
+    public boolean claim(long id, String staff, boolean force) {
+        Report r = reports.get(id);
+        if (r == null || !r.isOpen()) return false;
+        if (r.assignee == null || r.assignee.isBlank() || force) {
+            r.assignee = safeStr(staff);
+            trySave(r);
+            return true;
+        }
+        return false;
+    }
+
+    /** Reports claimed by a specific staff (open only). */
+    public List<Report> getClaimedBy(String staff) {
+        String who = staff == null ? "" : staff;
+        return getOpen().stream()
+                .filter(r -> r.assignee != null && r.assignee.equalsIgnoreCase(who))
+                .sorted((a,b) -> Double.compare(score(b), score(a)))
+                .toList();
     }
 
     /** Close/Reopen. */
@@ -297,11 +286,16 @@ public class ReportManager {
         return true;
     }
 
+    /** No-op (per-report saves are immediate). */
     public void save() { }
 
-    /* ====================== Internals ======================= */
+    /* =========================
+               INTERNALS
+       ========================= */
 
-    private String safeStr(String s) { return s == null ? "" : s.trim(); }
+    private String safeStr(String s) {
+        return s == null ? "" : s.trim();
+    }
 
     private boolean matches(Report r, String q) {
         if (q.isEmpty()) return true;
@@ -311,6 +305,7 @@ public class ReportManager {
         if (contains(r.reason, q)) return true;
         if (contains(r.typeDisplay, q)) return true;
         if (contains(r.categoryDisplay, q)) return true;
+        if (contains(r.sourceServer, q)) return true;
         return false;
     }
     private boolean contains(String hay, String needle) {
@@ -338,7 +333,9 @@ public class ReportManager {
         return a.equalsIgnoreCase(b);
     }
 
-    /* ====================== Persistence ======================= */
+    /* =========================
+              PERSISTENCE
+       ========================= */
 
     private void loadAll() throws IOException {
         if (!Files.isDirectory(storeDir)) return;
@@ -397,6 +394,7 @@ public class ReportManager {
         m.put("timestamp", r.timestamp);
         m.put("status", r.status == null ? ReportStatus.OPEN.name() : r.status.name());
         m.put("assignee", nullIfBlank(r.assignee));
+        m.put("sourceServer", nullIfBlank(r.sourceServer));
         long closedAt = closedAtById.getOrDefault(r.id, 0L);
         m.put("closedAt", closedAt);
 
@@ -435,6 +433,7 @@ public class ReportManager {
             String st = asStr(m.get("status"));
             r.status = (st == null || st.isBlank()) ? ReportStatus.OPEN : ReportStatus.valueOf(st);
             r.assignee = asStr(m.get("assignee"));
+            r.sourceServer = asStr(m.get("sourceServer"));
 
             Object chatObj = m.get("chat");
             if (chatObj instanceof List<?> list) {
@@ -445,7 +444,7 @@ public class ReportManager {
                         String pl = asStr(mm.get("player"));
                         String sv = asStr(mm.get("server"));
                         String ms = asStr(mm.get("message"));
-                        r.chat.add(new ChatMessage(t, sv, pl, ms)); // order: (time, server, player, message)
+                        r.chat.add(new ChatMessage(t, sv, pl, ms)); // ChatMessage(long time, String server, String player, String message)
                     }
                 }
             }
@@ -464,7 +463,51 @@ public class ReportManager {
         try { return Long.parseLong(String.valueOf(o)); } catch (Exception e) { return def; }
     }
 
-    /* ====================== Debug ======================= */
+    /* =========================
+         PRIORITY SCORING
+       ========================= */
+
+    private double score(Report r) {
+        var pr = config.priority;
+        if (pr == null || !pr.enabled) {
+            // legacy fallback
+            return r.count + (Instant.ofEpochMilli(r.timestamp).toEpochMilli() / 1_000_000_000.0);
+        }
+        double s = 0.0;
+
+        // Count factor: use raw count
+        if (pr.count.enabled) {
+            s += pr.count.weight * Math.max(1, r.count);
+        }
+
+        // Recency factor: fresher = closer to 1.0
+        if (pr.recency.enabled) {
+            long ageMs = Math.max(1L, System.currentTimeMillis() - r.timestamp);
+            double hours = ageMs / 3_600_000.0;
+            double fres = 1.0 / (1.0 + hours); // in (0,1]
+            s += pr.recency.weight * fres;
+        }
+
+        // Chat factor: presence of captured chat evidence
+        if (pr.chat.enabled) {
+            double has = (r.chat != null && !r.chat.isEmpty()) ? 1.0 : 0.0;
+            s += pr.chat.weight * has;
+        }
+
+        // Type/category factor: configurable boosts
+        if (pr.type.enabled) {
+            double tb = pr.typeBoosts.getOrDefault(val(r.typeId), 0.0);
+            double cb = pr.categoryBoosts.getOrDefault(val(r.categoryId), 0.0);
+            s += pr.type.weight * (tb + cb);
+        }
+
+        return s;
+    }
+    private static String val(String s) { return s == null ? "" : s.toLowerCase(Locale.ROOT); }
+
+    /* =========================
+            DEBUG / UTILITIES
+       ========================= */
 
     public String debugSummary() {
         long open = reports.values().stream().filter(Report::isOpen).count();

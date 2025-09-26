@@ -39,27 +39,29 @@ public class ConfigManager {
         PluginConfig pc = new PluginConfig();
 
         // Core
-        pc.allowSelfReport = get(root, "allow-self-report", false);
+        pc.allowSelfReport    = get(root, "allow-self-report", false);
         pc.stackWindowSeconds = get(root, "stack-window-seconds", 600);
-        pc.exportHtmlChatlog = get(root, "export-html-chatlog", true);
-        pc.htmlExportDir = get(root, "html-export-dir", "html-logs");
-        pc.reportsPerPage = get(root, "reports-per-page", 10);
-        pc.staffPermission = get(root, "staff-permission", "reportsystem.reports");
-        pc.notifyPermission = get(root, "notify-permission", "reportsystem.notify");
+        pc.exportHtmlChatlog  = get(root, "export-html-chatlog", true);
+        pc.htmlExportDir      = get(root, "html-export-dir", "html-logs");
+        pc.reportsPerPage     = get(root, "reports-per-page", 10);
+        pc.staffPermission    = get(root, "staff-permission", "reportsystem.reports");
+        pc.adminPermission    = get(root, "admin-permission", "reportsystem.admin");
+        pc.forceClaimPermission = get(root, "force-claim-permission", "reportsystem.forceclaim");
+        pc.notifyPermission   = get(root, "notify-permission", "reportsystem.notify");
 
         // Preview + public URL
-        pc.previewLines = get(root, "preview-lines", 10);
+        pc.previewLines        = get(root, "preview-lines", 10);
         pc.previewLineMaxChars = get(root, "preview-line-max-chars", 200);
-        pc.publicBaseUrl = get(root, "public-base-url", "");
+        pc.publicBaseUrl       = get(root, "public-base-url", "");
 
-        // Priority sorting / thresholds / colors
+        // Legacy priority fallback
         pc.prioritySorting = get(root, "priority-sorting", true);
-        pc.tieBreaker = get(root, "tie-breaker", "newest");
+        pc.tieBreaker      = get(root, "tie-breaker", "newest");
 
         pc.threshYellow = get(root, "stack-thresholds.yellow", 3);
-        pc.threshGold = get(root, "stack-thresholds.gold", 5);
-        pc.threshRed = get(root, "stack-thresholds.red", 10);
-        pc.threshDarkRed = get(root, "stack-thresholds.dark-red", 15);
+        pc.threshGold   = get(root, "stack-thresholds.gold", 5);
+        pc.threshRed    = get(root, "stack-thresholds.red", 10);
+        pc.threshDarkRed= get(root, "stack-thresholds.dark-red", 15);
 
         pc.colorYellow = get(root, "stack-colors.yellow", "<yellow>");
         pc.colorGold   = get(root, "stack-colors.gold", "<gold>");
@@ -68,32 +70,66 @@ public class ConfigManager {
 
         // HTTP server
         Map<String,Object> http = (Map<String,Object>) root.getOrDefault("http-server", Map.of());
-        pc.httpServer.enabled = get(http, "enabled", false);
-        pc.httpServer.externalBaseUrl = get(http, "external-base-url", "");
-        pc.httpServer.bind = get(http, "bind", "0.0.0.0");
-        pc.httpServer.port = get(http, "port", 8085);
-        pc.httpServer.basePath = get(http, "base-path", "/");
+        pc.httpServer.enabled        = get(http, "enabled", false);
+        pc.httpServer.externalBaseUrl= get(http, "external-base-url", "");
+        pc.httpServer.bind           = get(http, "bind", "0.0.0.0");
+        pc.httpServer.port           = get(http, "port", 8085);
+        pc.httpServer.basePath       = get(http, "base-path", "/");
 
         // Discord
         Map<String,Object> d = (Map<String,Object>) root.getOrDefault("discord", Map.of());
-        pc.discord.enabled   = get(d, "enabled", false);
-        pc.discord.webhookUrl= get(d, "webhook-url", "");
-        pc.discord.username  = get(d, "username", "ReportSystem");
-        pc.discord.avatarUrl = get(d, "avatar-url", "");
-        pc.discord.timeoutMs = get(d, "timeout-ms", 4000);
+        pc.discord.enabled    = get(d, "enabled", false);
+        pc.discord.webhookUrl = get(d, "webhook-url", "");
+        pc.discord.username   = get(d, "username", "ReportSystem");
+        pc.discord.avatarUrl  = get(d, "avatar-url", "");
+        pc.discord.timeoutMs  = get(d, "timeout-ms", 4000);
 
-        // Auth (NEW)
+        // Auth
         Map<String,Object> a = (Map<String,Object>) root.getOrDefault("auth", Map.of());
-        pc.auth.enabled            = get(a, "enabled", true);
-        pc.auth.cookieName         = get(a, "cookie-name", "rsid");
-        pc.auth.sessionTtlMinutes  = get(a, "session-ttl-minutes", 60 * 24);
-        pc.auth.codeTtlSeconds     = get(a, "code-ttl-seconds", 120);
-        pc.auth.codeLength         = get(a, "code-length", 6);
-        pc.auth.secret             = get(a, "secret", "change-me");
-        pc.auth.requirePermission  = get(a, "require-permission", true);
+        pc.auth.enabled           = get(a, "enabled", true);
+        pc.auth.cookieName        = get(a, "cookie-name", "rsid");
+        pc.auth.sessionTtlMinutes = get(a, "session-ttl-minutes", 60*24);
+        pc.auth.codeTtlSeconds    = get(a, "code-ttl-seconds", 120);
+        pc.auth.codeLength        = get(a, "code-length", 6);
+        pc.auth.secret            = get(a, "secret", "change-me");
+        pc.auth.requirePermission = get(a, "require-permission", true);
         Object openPathsObj = a.get("open-paths");
         if (openPathsObj instanceof List<?> lst) {
             pc.auth.openPaths = (List<String>) (List<?>) lst;
+        }
+
+        // Cooldown
+        Map<String,Object> cd = (Map<String,Object>) root.getOrDefault("cooldown", Map.of());
+        pc.cooldown.enabled = get(cd, "enabled", true);
+        pc.cooldown.seconds = get(cd, "seconds", 60);
+
+        // Priority (multi-factor)
+        Map<String,Object> pr = (Map<String,Object>) root.getOrDefault("priority", Map.of());
+        pc.priority.enabled = get(pr, "enabled", true);
+
+        Map<String,Object> fCount = (Map<String,Object>) pr.getOrDefault("count", Map.of());
+        pc.priority.count.enabled = get(fCount, "enabled", true);
+        pc.priority.count.weight  = get(fCount, "weight", 1.0);
+
+        Map<String,Object> fRec = (Map<String,Object>) pr.getOrDefault("recency", Map.of());
+        pc.priority.recency.enabled = get(fRec, "enabled", true);
+        pc.priority.recency.weight  = get(fRec, "weight", 0.7);
+
+        Map<String,Object> fChat = (Map<String,Object>) pr.getOrDefault("chat", Map.of());
+        pc.priority.chat.enabled = get(fChat, "enabled", true);
+        pc.priority.chat.weight  = get(fChat, "weight", 0.3);
+
+        Map<String,Object> fType = (Map<String,Object>) pr.getOrDefault("type", Map.of());
+        pc.priority.type.enabled = get(fType, "enabled", true);
+        pc.priority.type.weight  = get(fType, "weight", 0.4);
+
+        Object tb = pr.get("type-boosts");
+        if (tb instanceof Map<?,?> m) {
+            pc.priority.typeBoosts = (Map<String, Double>)(Map<?,?>) m;
+        }
+        Object cb = pr.get("category-boosts");
+        if (cb instanceof Map<?,?> m) {
+            pc.priority.categoryBoosts = (Map<String, Double>)(Map<?,?>) m;
         }
 
         // Messages
