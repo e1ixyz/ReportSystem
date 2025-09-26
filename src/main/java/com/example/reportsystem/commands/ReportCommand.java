@@ -11,152 +11,134 @@ import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.StringJoiner;
 
-/** /report <type> <category> [<target>] <reason...> */
+/**
+ * /report command
+ *
+ * Usage:
+ *   /report <player> <type> <category> [reason...]
+ *
+ * Notes:
+ * - Adjusted to call ReportManager.fileOrStack(reporter, reported, ReportType, reason)
+ *   (4 args). Any older extra parameter (e.g., server hint) was removed in ReportManager.
+ */
 public class ReportCommand implements SimpleCommand {
 
     private final ReportSystem plugin;
     private final ReportManager mgr;
-    private final ChatLogService chat;
+    private final ChatLogService chatLogs; // kept for compatibility (may be used by listeners)
     private PluginConfig config;
 
-    // cooldown tracker (username -> last epoch ms)
-    private static final ConcurrentHashMap<String, Long> LAST_AT = new ConcurrentHashMap<>();
-
-    public ReportCommand(ReportSystem plugin, ReportManager mgr, ChatLogService chat, PluginConfig config) {
+    public ReportCommand(ReportSystem plugin, ReportManager mgr, ChatLogService chatLogs, PluginConfig config) {
         this.plugin = plugin;
         this.mgr = mgr;
-        this.chat = chat;
+        this.chatLogs = chatLogs;
         this.config = config;
     }
 
     @Override
     public void execute(Invocation inv) {
         CommandSource src = inv.source();
+
+        // Must be a player to file a report (adjust if you want console support)
+        if (!(src instanceof Player p)) {
+            Text.msg(src, "<red>Only players can use /report.</red>");
+            return;
+        }
+
         String[] args = inv.arguments();
-
-        if (args.length < 2) {
-            Text.msg(src, config.msg("usage-report", "Usage: /report <type> <category> [<target>] <reason...>"));
+        if (args.length < 3) {
+            Text.msg(src, "<yellow>Usage:</yellow> /report <player> <type> <category> [reason...]");
+            // show quick hints for types/categories
+            if (!mgr.typeIds().isEmpty()) {
+                Text.msg(src, "<gray>Types:</gray> <white>" + String.join(", ", mgr.typeIds()) + "</white>");
+            }
             return;
         }
 
-        String typeId = args[0];
-        String catId  = args[1];
-        ReportType rt = mgr.resolveType(typeId, catId);
+        String reported = args[0];
+        String typeId = args[1];
+        String categoryId = args[2];
+
+        // Optional reason
+        String reason = "";
+        if (args.length > 3) {
+            StringJoiner sj = new StringJoiner(" ");
+            for (int i = 3; i < args.length; i++) sj.add(args[i]);
+            reason = sj.toString();
+        }
+
+        // Validate type/category via config
+        ReportType rt = mgr.resolveType(typeId, categoryId);
         if (rt == null) {
-            Text.msg(src, config.msg("invalid-type", "Unknown type or category: %type%/%cat%")
-                    .replace("%type%", typeId).replace("%cat%", catId));
+            Text.msg(src, "<red>Unknown type/category:</red> <gray>" + typeId + "/" + categoryId + "</gray>");
+            // help: show categories for this type if type exists
+            List<String> cats = mgr.categoryIdsFor(typeId);
+            if (!cats.isEmpty()) {
+                Text.msg(src, "<gray>Valid categories for</gray> <white>"+typeId+"</white><gray>:</gray> <white>"+String.join(", ", cats)+"</white>");
+            } else {
+                Text.msg(src, "<gray>Valid types:</gray> <white>"+String.join(", ", mgr.typeIds())+"</white>");
+            }
             return;
         }
 
-        boolean isPlayerType = rt.typeId.equalsIgnoreCase("player");
-        String reporter = (src instanceof Player p) ? p.getUsername() : "CONSOLE";
-        String reported;
-        String reason;
-
-        if (isPlayerType) {
-            if (args.length < 4) {
-                Text.msg(src, config.msg("usage-report", "Usage: /report player <category> <target> <reason...>"));
-                return;
-            }
-            reported = args[2];
-            reason = String.join(" ", Arrays.copyOfRange(args, 3, args.length));
-            if (!config.allowSelfReport && src instanceof Player p && p.getUsername().equalsIgnoreCase(reported)) {
-                Text.msg(src, config.msg("self-report-denied", "You cannot report yourself."));
-                return;
-            }
-        } else {
-            if (args.length < 3) {
-                Text.msg(src, config.msg("usage-report", "Usage: /report <type> <category> <reason...>"));
-                return;
-            }
-            reported = "N/A";
-            reason = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
+        // Self-report check
+        if (!config.allowSelfReport && reported.equalsIgnoreCase(p.getUsername())) {
+            Text.msg(src, "<red>You cannot report yourself.</red>");
+            return;
         }
 
-        // Cooldown for non-staff (bypass if user has staffPermission)
-        if (config.cooldown != null && config.cooldown.enabled && src instanceof Player p
-                && !p.hasPermission(config.staffPermission)) {
-            long now = System.currentTimeMillis();
-            long last = LAST_AT.getOrDefault(p.getUsername().toLowerCase(Locale.ROOT), 0L);
-            long remain = (last + (long)config.cooldown.seconds * 1000L) - now;
-            if (remain > 0) {
-                long sec = (remain + 999) / 1000;
-                Text.msg(src, "<red>Please wait "+sec+"s before filing another report.</red>");
-                return;
-            }
-            LAST_AT.put(p.getUsername().toLowerCase(Locale.ROOT), now);
-        }
+        // Create or stack (NOTE: 4-arg call!)
+        Report r = mgr.fileOrStack(p.getUsername(), reported, rt, reason);
 
-        // Optional: validate target online for player reports (non-fatal)
-        if (isPlayerType) {
-            Optional<Player> t = plugin.proxy().getPlayer(reported);
-            if (t.isEmpty()) {
-                // allowed to file against offline names
-            }
-        }
+        // Persist (mgr.save() is no-op since per-report saves happen inside manager; still call for legacy)
+        mgr.save();
 
-        // Determine source server (if player)
-        String sourceServer = (src instanceof Player p)
-                ? p.getCurrentServer().map(s -> s.getServerInfo().getName()).orElse(null)
-                : "CONSOLE";
+        // Notify reporter
+        String idStr = String.valueOf(r.id);
+        String msg = config.msg("report-filed",
+                "Reported <white>%target%</white> for <white>%type%/%cat%</white> (#%id%).")
+                .replace("%target%", reported)
+                .replace("%type%", rt.typeDisplay)
+                .replace("%cat%", rt.categoryDisplay)
+                .replace("%id%", idStr);
 
-        // Create/stack (NOTE: 5-arg call including sourceServer)
-        Report r = mgr.fileOrStack(reporter, reported, rt, reason, sourceServer);
-        chat.refreshWatchList(); // ensure chat capture watches targets for "chat" category
+        Text.msg(src, msg);
 
-        if (r.count > 1) {
-            Text.msg(src, config.msg("report-stacked", "Report stacked into #%id% (now x%count%)")
-                    .replace("%id%", String.valueOf(r.id))
-                    .replace("%count%", String.valueOf(r.count)));
-        } else {
-            Text.msg(src, config.msg("report-filed", "Report filed! (ID #%id%)")
-                    .replace("%id%", String.valueOf(r.id)));
-        }
-
-        // In-game notify to staff with permission
-        String notifyPerm = (config.notifyPermission == null || config.notifyPermission.isBlank())
-                ? "reportsystem.notify" : config.notifyPermission;
-        String summary = "<yellow>New report:</yellow> <white>#"+r.id+
-                "</white> <gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray> " +
-                "<gray>Target:</gray> <white>"+(isPlayerType ? r.reported : "—")+"</white> — <gray>"+Text.escape(reason)+
-                "</gray>  <gray>[</gray><aqua><hover:show_text:'Expand report'><click:run_command:'/reports view "+r.id+"'>Expand</click></hover></aqua><gray>]</gray>";
-
+        // Optional staff broadcast (if notifyPermission is set)
         plugin.proxy().getAllPlayers().forEach(pl -> {
-            if (pl.hasPermission(notifyPerm)) {
-                Text.msg(pl, summary);
+            if (pl.hasPermission(config.notifyPermission)) {
+                String staffMsg = config.msg("staff-alert",
+                        "<gray>[Report]</gray> <white>%reporter%</white> -> <white>%target%</white> <gray>(%type%/%cat%)</gray> <gray>[</gray><aqua><click:run_command:'/reports view %id%'>EXPAND</click></aqua><gray>]</gray>")
+                        .replace("%reporter%", p.getUsername())
+                        .replace("%target%", reported)
+                        .replace("%type%", rt.typeDisplay)
+                        .replace("%cat%", rt.categoryDisplay)
+                        .replace("%id%", idStr);
+
+                Text.msg(pl, staffMsg);
             }
         });
-
-        // Optional notifier (keep feature without compile error)
-        try {
-            Object n = plugin.notifier();
-            if (n != null) {
-                n.getClass().getMethod("notifyNew", Report.class, String.class).invoke(n, r, reason);
-            }
-        } catch (Throwable ignored) {}
     }
 
     @Override
     public List<String> suggest(Invocation inv) {
         String[] a = inv.arguments();
-        if (a.length == 0) return mgr.typeIds(); // <type>
-        if (a.length == 1) return filter(mgr.typeIds(), a[0]); // <category> next
-        if (a.length == 2) return filter(mgr.categoryIdsFor(a[0]), a[1]); // <target or reason>
-        if (a.length == 3 && a[0].equalsIgnoreCase("player")) {
-            var names = plugin.proxy().getAllPlayers().stream().map(Player::getUsername).toList();
-            return filter(names, a[2]);
+        if (a.length == 0) {
+            // player names
+            return plugin.proxy().getAllPlayers().stream().map(Player::getUsername).toList();
         }
-        return List.of();
-    }
-
-    private static List<String> filter(List<String> options, String prefix) {
-        String p = prefix.toLowerCase(Locale.ROOT);
-        return options.stream().filter(s -> s.toLowerCase(Locale.ROOT).startsWith(p)).toList();
+        if (a.length == 1) {
+            // type ids
+            return mgr.typeIds();
+        }
+        if (a.length == 2) {
+            // categories for given type id
+            return mgr.categoryIdsFor(a[1]);
+        }
+        return List.of("<reason>");
     }
 }

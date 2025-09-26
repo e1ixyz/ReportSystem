@@ -9,8 +9,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Runtime config bag with sensible defaults.
- * NOTE: If you have a separate YAML loader, keep it. This class only holds fields + defaults.
+ * Runtime config with sensible defaults.
+ * Includes multi-factor priority, cooldown, auth, and HTTP fields.
  */
 public class PluginConfig {
     // Core
@@ -20,47 +20,46 @@ public class PluginConfig {
     public String htmlExportDir = "html-logs";
 
     public int reportsPerPage = 10;
-    public String staffPermission = "reportsystem.reports"; // general staff
-    public String adminPermission = "reportsystem.admin";   // admin-only ops (reload, logoutall, force claim)
-    public String forceClaimPermission = "reportsystem.forceclaim"; // separate perm (admin implies force)
-
+    /** Staff-level permission (can see /reports etc.) */
+    public String staffPermission = "reportsystem.reports";
+    /** Admin-level permission (reload, logoutall, force-claim) */
+    public String adminPermission = "reportsystem.admin";
+    /** Force-claim permission (also implied by admin) */
+    public String forceClaimPermission = "reportsystem.forceclaim";
     public String notifyPermission = "reportsystem.notify";
+
+    // Cooldown (seconds). Staff/staffPermission holders bypass.
+    public int reportCooldownSeconds = 60;
 
     // Inline preview safety
     public int previewLines = 10;
     public int previewLineMaxChars = 200;
 
-    // Optional public URL (preferred) when building links. If empty, we’ll fall back to http-server.externalBaseUrl.
+    // Public web base (optional). If empty, ReportsCommand will prefer http-server.externalBaseUrl when enabled.
     public String publicBaseUrl = "";
 
-    // Legacy priority fallback
-    public boolean prioritySorting = true;     // stacked first (legacy)
-    public String tieBreaker = "newest";       // "newest" or "oldest" (legacy)
-
-    // Stack badge thresholds/colors
+    // Priority sorting defaults & colors
+    public String tieBreaker = "newest";       // "newest" or "oldest"
     public int threshYellow = 3;
-    public int threshGold   = 5;
-    public int threshRed    = 10;
-    public int threshDarkRed= 15;
+    public int threshGold = 5;
+    public int threshRed = 10;
+    public int threshDarkRed = 15;
 
     public String colorYellow = "<yellow>";
-    public String colorGold   = "<gold>";
-    public String colorRed    = "<red>";
-    public String colorDarkRed= "<dark_red>";
+    public String colorGold = "<gold>";
+    public String colorRed = "<red>";
+    public String colorDarkRed = "<dark_red>";
 
-    // Embedded HTTP server (served behind your tunnel / reverse proxy)
+    // Optional embedded HTTP server
     public HttpServerConfig httpServer = new HttpServerConfig();
 
-    // Discord webhook
+    // Discord webhook (existing)
     public DiscordConfig discord = new DiscordConfig();
 
-    // Web auth
+    // Lightweight web auth options used by WebServer/AuthService
     public AuthConfig auth = new AuthConfig();
 
-    // Report cooldown
-    public CooldownConfig cooldown = new CooldownConfig();
-
-    // Multi-factor priority scoring
+    // NEW: Multi-factor priority configuration
     public PriorityConfig priority = new PriorityConfig();
 
     // Messages & dynamic types
@@ -78,8 +77,7 @@ public class PluginConfig {
         return v instanceof List<?> list ? (List<String>) list : def;
     }
 
-    /* ================= nested configs ================= */
-
+    // Nested configs
     public static class ReportTypeDef {
         public String display;
         public Map<String, String> categories = new LinkedHashMap<>();
@@ -95,7 +93,7 @@ public class PluginConfig {
 
     public static class HttpServerConfig {
         public boolean enabled = false;
-        /** Example: "https://reports.example.com" (no trailing slash) */
+        /** Example: "https://public.domain/reports" */
         public String externalBaseUrl = "";
         public String bind = "0.0.0.0";
         public int port = 8085;
@@ -103,7 +101,7 @@ public class PluginConfig {
         public String basePath = "/";
     }
 
-    /** Auth used by WebServer/AuthService/ReportsCommand */
+    /** Auth block used by WebServer/AuthService/ReportsCommand */
     public static class AuthConfig {
         public boolean enabled = true;
         public String cookieName = "rsid";
@@ -113,7 +111,7 @@ public class PluginConfig {
         public int codeTtlSeconds = 120;
         /** digits in the one-time code */
         public int codeLength = 6;
-        /** signing secret */
+        /** optional signing secret for sessions */
         public String secret = "change-me";
         /** allow unauthenticated paths when auth is enabled */
         public List<String> openPaths = List.of("/login", "/favicon.ico");
@@ -121,54 +119,50 @@ public class PluginConfig {
         public boolean requirePermission = true;
     }
 
-    /** Cooldown for filing reports (players without staffPermission are throttled) */
-    public static class CooldownConfig {
-        public boolean enabled = true;
-        public int seconds = 60; // default 1 minute
-    }
-
     /**
-     * Multi-factor priority configuration.
-     *
-     * We compute a score per open report:
-     *   score = w_count*Fcount + w_recency*Frecency + w_chat*Fchat + w_type*Ftype
-     *
-     * - Fcount: raw stack count (>=1). Higher = more reports about same target.
-     * - Frecency: 1 / (1 + ageHours)  (fresh reports score higher; bounded in [0,1]).
-     * - Fchat: 1 if chat messages exist, else 0 (chat-evidence bumps urgency).
-     * - Ftype: type/category boost: typeBoost(typeId) + categoryBoost(categoryId)
-     *
-     * All factors can be toggled individually and carry weights (doubles).
+     * Multi-factor priority:
+     * Each factor can be enabled/disabled and weighted. Final score is:
+     *   score = Σ (enabled ? weight * factorValue : 0)
+     * Factors:
+     *   - stackCount: more duplicate reports → higher priority
+     *   - recencyDecay: newer reports score more; decays by half-life (minutes)
+     *   - categoryWeight: per-category boost (via map)
+     *   - targetOnline: boost if reported player is currently online
+     *   - unassignedBoost: boost if nobody has claimed it yet
+     *   - escalatingStatus: optional future use (left on for extension)
      */
     public static class PriorityConfig {
         public boolean enabled = true;
 
-        public Factor count   = new Factor(true, 1.0);  // strongest default signal
-        public Factor recency = new Factor(true, 0.7);  // recent > old
-        public Factor chat    = new Factor(true, 0.3);  // evidence available
-        public Factor type    = new Factor(true, 0.4);  // domain-specific boosting
+        public boolean useStackCount = true;
+        public double weightStackCount = 1.0;
 
-        /** Optional boosts; keys are lowercase typeId/categoryId */
-        public Map<String, Double> typeBoosts = Map.of(
-                "player", 0.6  // player reports are typically highest priority
-        );
-        public Map<String, Double> categoryBoosts = Map.of(
-                "cheating", 0.6,
-                "dupe",     0.5,
-                "grief",    0.4,
-                "chat",     0.2
-        );
-    }
-    public static class Factor {
-        public boolean enabled;
-        public double weight;
-        public Factor() {}
-        public Factor(boolean enabled, double weight) { this.enabled = enabled; this.weight = weight; }
+        public boolean useRecencyDecay = true;
+        public double weightRecencyDecay = 1.0;
+        /** minutes until score halves (e.g., 60 = half every hour) */
+        public int recencyHalfLifeMinutes = 60;
+
+        public boolean useCategoryWeight = true;
+        public double weightCategory = 1.0;
+        /** categoryId -> numeric weight (e.g., "cheating": 2.0) */
+        public Map<String, Double> categoryWeights = new LinkedHashMap<>();
+
+        public boolean useTargetOnline = true;
+        public double weightTargetOnline = 0.5;
+
+        public boolean useUnassignedBoost = true;
+        public double weightUnassigned = 0.25;
+
+        // placeholder for future expansion
+        public boolean useEscalatingStatus = false;
+        public double weightEscalatingStatus = 0.0;
     }
 
     /* -------------------- minimal loader stubs -------------------- */
     public static PluginConfig loadOrCreate(Path dataDir) {
-        try { Files.createDirectories(dataDir); } catch (Exception ignored) {}
+        try {
+            Files.createDirectories(dataDir);
+        } catch (Exception ignored) {}
         return new PluginConfig();
     }
     public static PluginConfig loadOrCreate(Path dataDir, Logger logger) {
