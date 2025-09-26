@@ -121,8 +121,8 @@ public class ReportHistoryCommand implements SimpleCommand {
                     + "<gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray> "
                     + "<white>"+r.reported+"</white>"
                     + (r.assignee != null ? " <gray>[</gray><white>"+r.assignee+"</white><gray>]</gray>" : "")
-                    + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipExpand)+"'><click:run_command:'/reporthistory view "+r.id+"'>expand</click></hover></aqua><gray>]</gray>"
-                    + " <gray>[</gray><green><hover:show_text:'"+Text.escape(tipReopen)+"'><click:run_command:'/reporthistory reopen "+r.id+"'>reopen</click></hover></green><gray>]</gray>";
+                    + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipExpand)+"'><click:run_command:'/reporthistory view "+r.id+"'>Expand</click></hover></aqua><gray>]</gray>"
+                    + " <gray>[</gray><green><hover:show_text:'"+Text.escape(tipReopen)+"'><click:run_command:'/reporthistory reopen "+r.id+"'>Reopen</click></hover></green><gray>]</gray>";
             Text.msg(src, line);
         });
 

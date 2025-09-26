@@ -10,6 +10,7 @@ com/example/reportsystem/service/ChatLogService.class
 com/example/reportsystem/util/Pagination.class
 com/example/reportsystem/service/AuthService.class
 com/example/reportsystem/config/ConfigManager.class
+com/example/reportsystem/config/PluginConfig$Priority.class
 com/example/reportsystem/ReportSystem.class
 com/example/reportsystem/util/Text.class
 com/example/reportsystem/commands/ReportHistoryCommand.class

@@ -10,10 +10,6 @@ import java.util.Map;
 
 /**
  * Runtime config bag with sensible defaults.
- * NOTE: Minimal loader stubs included so older callsites like
- * PluginConfig.loadOrCreate(Path, Logger) compile. If you already
- * have a real YAML loader elsewhere, keep it and just ensure the
- * new Auth fields exist.
  */
 public class PluginConfig {
     // Core
@@ -26,21 +22,28 @@ public class PluginConfig {
     public String staffPermission = "reportsystem.reports";
     public String notifyPermission = "reportsystem.notify";
 
+    // Report cooldown (players WITHOUT staffPermission are throttled)
+    public int reportCooldownSeconds = 60; // default 1 minute
+
+    // Permission to force-claim reports already claimed by another staff member
+    public String forceClaimPermission = "reportsystem.forceclaim";
+
     // Inline preview safety
     public int previewLines = 10;
     public int previewLineMaxChars = 200;
 
-    // Public web base (optional). If empty, ReportsCommand will prefer http-server.externalBaseUrl when enabled.
+    // Public web base (optional)
     public String publicBaseUrl = "";
 
-    // Priority sorting & stack badge colors
-    public boolean prioritySorting = true;     // stacked first
+    // Legacy priority toggles (kept for back-compat)
+    public boolean prioritySorting = true;     // still used as a master switch
     public String tieBreaker = "newest";       // "newest" or "oldest"
 
-    public int threshYellow = 3;               // >3 -> yellow
-    public int threshGold = 5;                 // >5 -> gold
-    public int threshRed = 10;                 // >10 -> red
-    public int threshDarkRed = 15;             // >15 -> dark red
+    // Stack badge thresholds/colors
+    public int threshYellow = 3;
+    public int threshGold = 5;
+    public int threshRed = 10;
+    public int threshDarkRed = 15;
 
     public String colorYellow = "<yellow>";
     public String colorGold = "<gold>";
@@ -50,11 +53,14 @@ public class PluginConfig {
     // Optional embedded HTTP server
     public HttpServerConfig httpServer = new HttpServerConfig();
 
-    // Discord webhook (existing)
+    // Discord webhook
     public DiscordConfig discord = new DiscordConfig();
 
-    // NEW: lightweight web auth options used by WebServer/AuthService
+    // Web auth options (used by WebServer/AuthService)
     public AuthConfig auth = new AuthConfig();
+
+    // NEW: Multi-factor priority settings
+    public Priority priority = Priority.defaultsForLargeNetwork();
 
     // Messages & dynamic types
     public Map<String, Object> messages = new LinkedHashMap<>();
@@ -87,39 +93,79 @@ public class PluginConfig {
 
     public static class HttpServerConfig {
         public boolean enabled = false;
-        /** Example: "https://reports.example.com" or "https://map.example.com/reports" */
         public String externalBaseUrl = "";
         public String bind = "0.0.0.0";
         public int port = 8085;
-        /** Mount path inside the tiny server (default "/"). */
         public String basePath = "/";
     }
 
-    /** NEW: auth block used by WebServer/AuthService/ReportsCommand */
     public static class AuthConfig {
         public boolean enabled = true;
         public String cookieName = "rsid";
-        /** minutes; sliding session extension */
-        public int sessionTtlMinutes = 60 * 24; // 24h
-        /** seconds for one-time code validity */
+        public int sessionTtlMinutes = 60 * 24;
         public int codeTtlSeconds = 120;
-        /** digits in the one-time code */
         public int codeLength = 6;
-        /** optional signing secret for sessions */
         public String secret = "change-me";
-        /** allow unauthenticated paths when auth is enabled */
         public List<String> openPaths = List.of("/login", "/favicon.ico");
-        /** require staff perm to request codes via /reports auth */
         public boolean requirePermission = true;
+    }
+
+    /** NEW: Multi-factor priority config (enable/disable & weight each factor). */
+    public static class Priority {
+        public boolean enabled = true;
+
+        // Factor toggles
+        public boolean useCount = true;
+        public boolean useRecency = true;
+        public boolean useSeverity = true;
+        public boolean useEvidence = true;
+        public boolean useUnassigned = true;
+        public boolean useAging = true;
+        public boolean useSlaBreach = true;
+
+        // Weights ("rankings")
+        public double wCount = 2.0;
+        public double wRecency = 2.0;
+        public double wSeverity = 3.0;
+        public double wEvidence = 1.0;
+        public double wUnassigned = 0.5;
+        public double wAging = 1.0;
+        public double wSlaBreach = 4.0;
+
+        // Decay constant for recency (ms)
+        public long tauMs = 15 * 60_000L; // 15 minutes
+
+        // Per (type/category) overrides
+        public Map<String, Double> severityByKey = new LinkedHashMap<>(); // "player/cheat" -> 3.0
+        public Map<String, Integer> slaMinutes = new LinkedHashMap<>();   // "server/crash" -> 2
+
+        public static Priority defaultsForLargeNetwork() {
+            Priority p = new Priority();
+            // Sensible defaults for busy networks:
+            p.enabled = true;
+            p.useCount = true;      p.wCount = 2.0;
+            p.useRecency = true;    p.wRecency = 2.0;
+            p.useSeverity = true;   p.wSeverity = 3.0;
+            p.useEvidence = true;   p.wEvidence = 1.0;
+            p.useUnassigned = true; p.wUnassigned = 0.5;
+            p.useAging = true;      p.wAging = 1.0;
+            p.useSlaBreach = true;  p.wSlaBreach = 4.0;
+            p.tauMs = 15 * 60_000L;
+
+            // Example baselines (edit in config.yml)
+            p.severityByKey.put("player/cheat", 3.0);
+            p.severityByKey.put("server/crash", 2.5);
+            p.severityByKey.put("player/chat", 1.0);
+
+            p.slaMinutes.put("player/cheat", 5);
+            p.slaMinutes.put("server/crash", 2);
+            return p;
+        }
     }
 
     /* -------------------- minimal loader stubs -------------------- */
     public static PluginConfig loadOrCreate(Path dataDir) {
-        try {
-            Files.createDirectories(dataDir);
-        } catch (Exception ignored) {}
-        // If you have a real YAML loader, use it here and populate this class.
-        // Stub returns defaults so the plugin can boot even without a file.
+        try { Files.createDirectories(dataDir); } catch (Exception ignored) {}
         return new PluginConfig();
     }
     public static PluginConfig loadOrCreate(Path dataDir, Logger logger) {
