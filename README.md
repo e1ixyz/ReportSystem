@@ -1,6 +1,6 @@
 # ReportSystem (Velocity)
 
-A modern, staff-friendly reporting and triage system for [Velocity](https://velocitypowered.com/) proxies.
+A modern, staff-friendly reporting and system for [Velocity](https://velocitypowered.com/) proxies.
 
 It captures player chat context, supports dynamic report types, stacks duplicate reports, and provides a rich in-chat and web-based UI for staff. The plugin is actively maintained and built for performance, usability, and configurability.
 
@@ -13,7 +13,7 @@ It captures player chat context, supports dynamic report types, stacks duplicate
 - [📦 Installation](#-installation)
 - [🧑‍💻 Commands](#-commands)
   - [Player / Staff](#player--staff)
-  - [Staff Triage](#staff-triage)
+  - [Staff](#staff)
 - [🖱️ In-Chat UI](#️-in-chat-ui)
 - [💬 Chat Capture](#-chat-capture)
 - [🔐 Permissions](#-permissions)
@@ -32,7 +32,7 @@ It captures player chat context, supports dynamic report types, stacks duplicate
 - Context-aware tab-completion (type → category → target → reason)
 - Duplicate stacking with a configurable time window
 - In-chat and HTML chat capture
-- Chat triage UI with hover tooltips and quick actions
+- Chat UI with hover tooltips and quick actions
 - Inline or web-based chat log viewer
 - Closed report browser with reopen support
 - Optional built-in HTTP server for HTML exports
@@ -82,13 +82,13 @@ It captures player chat context, supports dynamic report types, stacks duplicate
 
 ---
 
-### Staff Triage
+### Staff
 
 \`\`\`
 /reports
 \`\`\`
 
-Open the live report triage interface, sorted by:
+Open the live report interface, sorted by:
 - Stack count (desc)
 - Then time (newest)
 
