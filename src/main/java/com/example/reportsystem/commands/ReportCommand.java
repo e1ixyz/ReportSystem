@@ -15,6 +15,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * /report command
@@ -39,11 +42,16 @@ public class ReportCommand implements SimpleCommand {
     private final ReportManager mgr;
     private final ChatLogService chat;
     private PluginConfig config;
+    private final ConcurrentMap<UUID, Long> lastReportAt = new ConcurrentHashMap<>();
 
     public ReportCommand(ReportSystem plugin, ReportManager mgr, ChatLogService chat, PluginConfig config) {
         this.plugin = plugin;
         this.mgr = mgr;
         this.chat = chat;
+        this.config = config;
+    }
+
+    public void setConfig(PluginConfig config) {
         this.config = config;
     }
 
@@ -73,6 +81,12 @@ public class ReportCommand implements SimpleCommand {
         String reporter = (src instanceof Player p) ? p.getUsername() : "CONSOLE";
         String reported;
         String reason;
+
+        Player playerSource = (src instanceof Player p) ? p : null;
+
+        if (playerSource != null && !enforceCooldown(playerSource)) {
+            return;
+        }
 
         if (isPlayerType) {
             if (args.length < 4) {
@@ -111,6 +125,7 @@ public class ReportCommand implements SimpleCommand {
             if (srcServer != null && !srcServer.isBlank()) {
                 mgr.updateSourceServer(r.id, srcServer);
             }
+            lastReportAt.put(p.getUniqueId(), System.currentTimeMillis());
         }
 
         chat.refreshWatchList(); // ensure chat capture watches targets for subsequent messages
@@ -150,6 +165,23 @@ public class ReportCommand implements SimpleCommand {
                 n.getClass().getMethod("notifyNew", Report.class, String.class).invoke(n, r, reason);
             }
         } catch (Throwable ignored) {}
+    }
+
+    private boolean enforceCooldown(Player player) {
+        if (player.hasPermission(config.staffPermission)) return true;
+
+        int cooldown = Math.max(0, config.reportCooldownSeconds);
+        if (cooldown <= 0) return true;
+
+        long now = System.currentTimeMillis();
+        long last = lastReportAt.getOrDefault(player.getUniqueId(), 0L);
+        long waitMillis = (last + cooldown * 1000L) - now;
+        if (waitMillis <= 0) return true;
+
+        long secondsLeft = (waitMillis + 999L) / 1000L;
+        Text.msg(player, config.msg("report-cooldown", "<red>You must wait %seconds%s before filing another report.</red>")
+                .replace("%seconds%", String.valueOf(secondsLeft)));
+        return false;
     }
 
     @Override

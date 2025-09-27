@@ -98,30 +98,34 @@ public class ConfigManager {
 
         // Priority (multi-factor)
         Map<String,Object> pr = (Map<String,Object>) root.getOrDefault("priority", Map.of());
-        pc.priority.enabled           = get(pr, "enabled", true);
+        pc.priority.enabled          = get(pr, "enabled", true);
+        pc.priority.useCount         = bool(pr, "use-count", pc.priority.useCount);
+        pc.priority.useRecency       = bool(pr, "use-recency", pc.priority.useRecency);
+        pc.priority.useSeverity      = bool(pr, "use-severity", pc.priority.useSeverity);
+        pc.priority.useEvidence      = bool(pr, "use-evidence", pc.priority.useEvidence);
+        pc.priority.useUnassigned    = bool(pr, "use-unassigned", pc.priority.useUnassigned);
+        pc.priority.useAging         = bool(pr, "use-aging", pc.priority.useAging);
+        pc.priority.useSlaBreach     = bool(pr, "use-sla-breach", pc.priority.useSlaBreach);
 
-        pc.priority.useStackCount     = get(pr, "use-stack-count", true);
-        pc.priority.weightStackCount  = get(pr, "weight-stack-count", 1.0);
+        pc.priority.weightCount      = dbl(pr, "w-count", pc.priority.weightCount);
+        pc.priority.weightRecency    = dbl(pr, "w-recency", pc.priority.weightRecency);
+        pc.priority.weightSeverity   = dbl(pr, "w-severity", pc.priority.weightSeverity);
+        pc.priority.weightEvidence   = dbl(pr, "w-evidence", pc.priority.weightEvidence);
+        pc.priority.weightUnassigned = dbl(pr, "w-unassigned", pc.priority.weightUnassigned);
+        pc.priority.weightAging      = dbl(pr, "w-aging", pc.priority.weightAging);
+        pc.priority.weightSlaBreach  = dbl(pr, "w-sla-breach", pc.priority.weightSlaBreach);
 
-        pc.priority.useRecencyDecay   = get(pr, "use-recency-decay", true);
-        pc.priority.weightRecencyDecay= get(pr, "weight-recency-decay", 1.0);
-        pc.priority.recencyHalfLifeMinutes = get(pr, "recency-half-life-minutes", 60);
+        pc.priority.tauMs            = dbl(pr, "tau-ms", pc.priority.tauMs);
 
-        pc.priority.useCategoryWeight = get(pr, "use-category-weight", true);
-        pc.priority.weightCategory    = get(pr, "weight-category", 1.0);
-        Map<String,Object> cw = (Map<String,Object>) pr.getOrDefault("category-weights", Map.of());
-        for (String k : cw.keySet()) {
-            pc.priority.categoryWeights.put(k.toLowerCase(), Double.valueOf(String.valueOf(cw.get(k))));
+        Map<String,Object> severity = (Map<String,Object>) pr.getOrDefault("severity-by-key", Map.of());
+        for (Map.Entry<String,Object> entry : severity.entrySet()) {
+            pc.priority.severityByKey.put(entry.getKey().toLowerCase(), dbl(entry.getValue(), 0d));
         }
 
-        pc.priority.useTargetOnline   = get(pr, "use-target-online", true);
-        pc.priority.weightTargetOnline= get(pr, "weight-target-online", 0.5);
-
-        pc.priority.useUnassignedBoost= get(pr, "use-unassigned-boost", true);
-        pc.priority.weightUnassigned  = get(pr, "weight-unassigned", 0.25);
-
-        pc.priority.useEscalatingStatus= get(pr, "use-escalating-status", false);
-        pc.priority.weightEscalatingStatus= get(pr, "weight-escalating-status", 0.0);
+        Map<String,Object> sla = (Map<String,Object>) pr.getOrDefault("sla-minutes", Map.of());
+        for (Map.Entry<String,Object> entry : sla.entrySet()) {
+            pc.priority.slaMinutes.put(entry.getKey().toLowerCase(), (int)Math.max(0, dbl(entry.getValue(), 0d)));
+        }
 
         // Messages
         pc.messages = (Map<String, Object>) root.getOrDefault("messages", Map.of());
@@ -160,5 +164,25 @@ public class ConfigManager {
             v = m.get(k);
         }
         return v == null ? def : (T) v;
+    }
+
+    private static boolean bool(Map<String, Object> m, String key, boolean def) {
+        Object v = m == null ? null : m.get(key);
+        return v == null ? def : Boolean.parseBoolean(String.valueOf(v));
+    }
+
+    private static double dbl(Map<String, Object> m, String key, double def) {
+        Object v = m == null ? null : m.get(key);
+        return dbl(v, def);
+    }
+
+    private static double dbl(Object v, double def) {
+        if (v == null) return def;
+        if (v instanceof Number n) return n.doubleValue();
+        try {
+            return Double.parseDouble(String.valueOf(v));
+        } catch (Exception ignored) {
+            return def;
+        }
     }
 }

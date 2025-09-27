@@ -33,11 +33,15 @@ public class ReportHistoryCommand implements SimpleCommand {
 
     private final ReportSystem plugin;
     private final ReportManager mgr;
-    private final PluginConfig config;
+    private PluginConfig config;
 
     public ReportHistoryCommand(ReportSystem plugin, ReportManager mgr, PluginConfig config) {
         this.plugin = plugin;
         this.mgr = mgr;
+        this.config = config;
+    }
+
+    public void setConfig(PluginConfig config) {
         this.config = config;
     }
 

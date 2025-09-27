@@ -14,6 +14,7 @@ import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
 import net.kyori.adventure.text.Component;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -41,6 +42,10 @@ public class ReportsCommand implements SimpleCommand {
         this.mgr = mgr;
         this.config = config;
         this.auth = auth;
+    }
+
+    public void setConfig(PluginConfig config) {
+        this.config = config;
     }
 
     @Override
@@ -257,13 +262,33 @@ public class ReportsCommand implements SimpleCommand {
                 if (results.size() > shown) Text.msg(src, "<gray>…and "+(results.size()-shown)+" more.</gray>");
             }
 
+            case "debug" -> {
+                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports debug <id>"); return; }
+                long id = parseLong(args[1], -1);
+                Report r = mgr.get(id);
+                if (r == null || !r.isOpen()) {
+                    Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
+                    return;
+                }
+                showPriorityBreakdown(src, r);
+            }
+
             case "reload" -> {
                 if (!src.hasPermission(config.adminPermission)) {
                     Text.msg(src, "<red>Admin permission required.</red>");
                     return;
                 }
+                boolean broadcasted = false;
+                if (src instanceof Player p) {
+                    String notifyPerm = (config.notifyPermission == null) ? "" : config.notifyPermission.trim();
+                    if (!notifyPerm.isBlank()) {
+                        broadcasted = p.hasPermission(notifyPerm);
+                    }
+                }
                 plugin.reload();
-                Text.msg(src, config.msg("reloaded","ReportSystem reloaded."));
+                if (!broadcasted) {
+                    Text.msg(src, config.msg("reloaded","ReportSystem reloaded."));
+                }
             }
 
             case "auth" -> {
@@ -272,15 +297,22 @@ public class ReportsCommand implements SimpleCommand {
                     return;
                 }
                 var code = auth.issueCodeFor(p);
-                String base = pickBaseUrl(config);
-                String link = joinUrl(base, "/login");
-
+                if (code == null) {
+                    Text.msg(src, "<red>Unable to generate an auth code. Do you have permission?</red>");
+                    return;
+                }
                 Text.msg(src,
                         "<gray>Your one-time code:</gray> <white><bold>" + code.code + "</bold></white> " +
                                 "<gray>(expires in " + config.msg("auth-code-ttl-s", "120") + "s)</gray>");
-                String tip = config.msg("tip-open-login","Open login page");
-                Text.msg(src,
-                        "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + link + "'>Open login</click></hover></aqua><gray>]</gray>");
+                String base = pickBaseUrl(config);
+                if (!base.isBlank()) {
+                    String tip = config.msg("tip-open-login","Open login page");
+                    String link = joinUrl(base, "/login");
+                    Text.msg(src,
+                            "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + Text.escape(link) + "'>Open login</click></hover></aqua><gray>]</gray>");
+                } else {
+                    Text.msg(src, config.msg("auth-no-base-url", "<red>No public URL configured. Set public-base-url or http-server.external-base-url.</red>"));
+                }
             }
 
             case "logoutall" -> {
@@ -339,14 +371,18 @@ public class ReportsCommand implements SimpleCommand {
     public List<String> suggest(Invocation inv) {
         String[] a = inv.arguments();
         if (a.length == 0) {
-            return List.of("page", "view", "claim", "claimed", "close", "chat", "assign", "unassign", "search", "reload", "auth", "logoutall");
+            return List.of("page", "view", "claim", "claimed", "close", "chat", "assign", "unassign", "search", "debug", "reload", "auth", "logoutall");
         }
         switch (a[0].toLowerCase()) {
             case "page" -> {
                 if (a.length == 1) return List.of("1", "2", "3");
             }
-            case "view", "close", "chat", "unassign" -> {
-                var ids = mgr.getOpenReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
+            case "view", "close", "chat" -> {
+                var ids = idSuggestions(false);
+                if (a.length == 1) return ids;
+            }
+            case "unassign" -> {
+                var ids = idSuggestions(true);
                 if (a.length == 1) return ids;
             }
             case "assign" -> {
@@ -358,11 +394,27 @@ public class ReportsCommand implements SimpleCommand {
                     return plugin.proxy().getAllPlayers().stream().map(Player::getUsername).toList();
                 }
             }
-            case "search" -> {
-                if (a.length == 1) return List.of("<query>");
-                if (a.length == 2) return List.of("open", "closed", "all");
+            case "debug" -> {
+                var ids = mgr.getOpenReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
+                if (a.length == 1) return ids;
             }
-            case "auth", "logoutall", "claim", "claimed" -> { return List.of(); }
+            case "search" -> {
+                if (a.length == 1) {
+                    return searchQuerySuggestions("");
+                }
+                if (a.length == 2) {
+                    return searchQuerySuggestions(a[1]);
+                }
+                if (a.length == 3) {
+                    return filter(List.of("open", "closed", "all"), a[2]);
+                }
+            }
+            case "claim" -> {
+                if (a.length == 1) {
+                    return idSuggestions(false);
+                }
+            }
+            case "auth", "logoutall", "claimed" -> { return List.of(); }
             default -> {
                 // fall back to type/category suggestions
                 if (a.length == 1) return mgr.typeIds();
@@ -585,6 +637,8 @@ public class ReportsCommand implements SimpleCommand {
         if (src instanceof Player p) {
             boolean assigned = r.assignee != null && !r.assignee.isBlank();
             boolean mine = assigned && p.getUsername().equalsIgnoreCase(r.assignee);
+            boolean canForce = p.hasPermission(config.forceClaimPermission)
+                    || p.hasPermission(config.adminPermission);
 
             if (mine) {
                 String tipUnassign = config.msg("tip-unassign", "Unassign");
@@ -593,9 +647,12 @@ public class ReportsCommand implements SimpleCommand {
                         .append("'>Unassign</click></hover></aqua><gray>]</gray>");
             } else {
                 String tipAssignMe = config.msg("tip-assign-me", "Assign to me");
-                actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipAssignMe))
+                String tipForce = config.msg("tip-force-claim", "Force-claim");
+                String hover = assigned ? (canForce ? tipForce : tipAssignMe) : tipAssignMe;
+                String label = assigned && canForce ? "Force-claim" : "Assign to me";
+                actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(hover))
                         .append("'><click:run_command:'/reports assigntome ").append(r.id)
-                        .append("'>Assign to me</click></hover></aqua><gray>]</gray>");
+                        .append("'>").append(Text.escape(label)).append("</click></hover></aqua><gray>]</gray>");
             }
         }
 
@@ -637,6 +694,68 @@ public class ReportsCommand implements SimpleCommand {
         }
     }
 
+    private List<String> idSuggestions(boolean assignedOnly) {
+        List<String> ids = new ArrayList<>();
+        ids.add("<id>");
+        mgr.getOpenReportsDescending().stream()
+                .filter(r -> !assignedOnly || (r.assignee != null && !r.assignee.isBlank()))
+                .map(r -> String.valueOf(r.id))
+                .forEach(ids::add);
+        return ids;
+    }
+
+    private List<String> searchQuerySuggestions(String prefix) {
+        String p = prefix == null ? "" : prefix.toLowerCase(Locale.ROOT);
+        List<String> suggestions = new ArrayList<>();
+
+        if ("<query>".startsWith(p) || p.isEmpty()) {
+            suggestions.add("<query>");
+        }
+
+        for (String typeId : mgr.typeIds()) {
+            String lowerType = typeId.toLowerCase(Locale.ROOT);
+            if (lowerType.startsWith(p)) {
+                suggestions.add(typeId);
+            }
+            for (String cat : mgr.categoryIdsFor(typeId)) {
+                String combo = typeId + "/" + cat;
+                if (combo.toLowerCase(Locale.ROOT).startsWith(p)) {
+                    suggestions.add(combo);
+                }
+            }
+        }
+
+        return suggestions;
+    }
+
+    private static List<String> filter(List<String> options, String prefix) {
+        String p = prefix == null ? "" : prefix.toLowerCase(Locale.ROOT);
+        return options.stream()
+                .filter(opt -> opt.toLowerCase(Locale.ROOT).startsWith(p))
+                .toList();
+    }
+
+    private void showPriorityBreakdown(CommandSource src, Report r) {
+        var breakdown = mgr.debugPriority(r);
+        if (!breakdown.enabled) {
+            Text.msg(src, "<gray>Priority scoring is disabled; ordering falls back to <white>" + Text.escape(breakdown.tieBreaker) + "</white>.</gray>");
+            return;
+        }
+
+        Text.msg(src, "<gray>Priority for <white>#" + r.id + "</white>: <green>" + fmt(breakdown.total) + "</green></gray>");
+        if (breakdown.components.isEmpty()) {
+            Text.msg(src, "<gray>No contributing factors (all weights zero or disabled).</gray>");
+        } else {
+            for (var comp : breakdown.components) {
+                String line = "<gray>- " + Text.escape(comp.name) + ":</gray> weight <white>" + fmt(comp.weight)
+                        + "</white> × value <white>" + fmt(comp.value) + "</white> = <white>" + fmt(comp.contribution)
+                        + "</white> <gray>(" + Text.escape(comp.reason) + ")</gray>";
+                Text.msg(src, line);
+            }
+        }
+        Text.msg(src, "<gray>Tie-breaker after priority: <white>" + Text.escape(breakdown.tieBreaker) + "</white>.</gray>");
+    }
+
     /** Configurable label for EXPAND button; defaults to "EXPAND". */
     private String expandLabel() {
         String s = config.msg("label-expand", "EXPAND"); // unified key
@@ -646,5 +765,9 @@ public class ReportsCommand implements SimpleCommand {
     private String expandTip() {
         String s = config.msg("tip-expand", "Expand");
         return (s == null || s.isBlank()) ? "Expand" : s;
+    }
+
+    private static String fmt(double value) {
+        return String.format(Locale.US, "%.2f", value);
     }
 }

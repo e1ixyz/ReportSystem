@@ -68,6 +68,7 @@ public class ChatLogService {
     public void onChat(PlayerChatEvent e) {
         Player p = e.getPlayer();
         String name = p.getUsername();
+        String lowered = name.toLowerCase(Locale.ROOT);
         String server = p.getCurrentServer().map(s -> s.getServerInfo().getName()).orElse("UNKNOWN");
         long now = System.currentTimeMillis();
 
@@ -78,11 +79,9 @@ public class ChatLogService {
         recordToBuffer(name, msg, now);
 
         // 2) If the player is being watched, live-append to their open reports
-        if (watchedPlayers.contains(name.toLowerCase(Locale.ROOT))) {
-            for (Report r : mgr.getOpenReportsDescending()) {
-                if (r.reported != null && r.reported.equalsIgnoreCase(name)) {
-                    mgr.appendChat(r.id, msg);
-                }
+        if (watchedPlayers.contains(lowered)) {
+            for (Report r : mgr.getOpenReportsFor(name)) {
+                mgr.appendChat(r.id, msg);
             }
         }
     }

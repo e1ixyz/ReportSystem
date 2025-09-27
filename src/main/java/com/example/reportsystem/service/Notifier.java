@@ -46,21 +46,27 @@ public class Notifier {
     }
 
     private void send(String content) {
-        if (config == null || config.discord == null || !config.discord.enabled) return;
-        String url = config.discord.webhookUrl;
-        if (url == null || url.isBlank()) return;
+        PluginConfig snapshot = this.config;
+        if (snapshot == null || snapshot.discord == null || !snapshot.discord.enabled) return;
+        PluginConfig.DiscordConfig discord = snapshot.discord;
+        if (discord.webhookUrl == null || discord.webhookUrl.isBlank()) return;
 
+        String url = discord.webhookUrl;
+        plugin.proxy().getScheduler().buildTask(plugin, () -> dispatchWebhook(discord, url, content)).schedule();
+    }
+
+    private void dispatchWebhook(PluginConfig.DiscordConfig discord, String url, String content) {
         try {
             HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
-            con.setConnectTimeout(config.discord.timeoutMs);
-            con.setReadTimeout(config.discord.timeoutMs);
+            con.setConnectTimeout(discord.timeoutMs);
+            con.setReadTimeout(discord.timeoutMs);
             con.setDoOutput(true);
             con.setRequestMethod("POST");
             con.setRequestProperty("Content-Type", "application/json");
 
-            String json = "{\"username\":\""+escape(config.discord.username)+"\""
-                    + (config.discord.avatarUrl != null && !config.discord.avatarUrl.isBlank() ? ",\"avatar_url\":\""+escape(config.discord.avatarUrl)+"\"" : "")
-                    + ",\"content\":\""+escape(content)+"\"}";
+            String json = "{\"username\":\"" + escape(discord.username) + "\""
+                    + (discord.avatarUrl != null && !discord.avatarUrl.isBlank() ? ",\"avatar_url\":\"" + escape(discord.avatarUrl) + "\"" : "")
+                    + ",\"content\":\"" + escape(content) + "\"}";
 
             try (OutputStream os = con.getOutputStream()) {
                 os.write(json.getBytes(StandardCharsets.UTF_8));

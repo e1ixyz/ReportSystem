@@ -42,6 +42,9 @@ public final class ReportSystem {
     private AuthService authService;
     private Notifier notifier;
     private WebServer webServer;
+    private ReportCommand reportCommand;
+    private ReportsCommand reportsCommand;
+    private ReportHistoryCommand reportHistoryCommand;
 
     @Inject
     public ReportSystem(ProxyServer proxy, Logger logger, @DataDirectory Path dataDir) {
@@ -82,13 +85,16 @@ public final class ReportSystem {
 
         CommandManager cm = proxy.getCommandManager();
         CommandMeta reportMeta = cm.metaBuilder("report").build();
-        cm.register(reportMeta, new ReportCommand(this, reportManager, chatLogService, config));
+        this.reportCommand = new ReportCommand(this, reportManager, chatLogService, config);
+        cm.register(reportMeta, reportCommand);
 
         CommandMeta reportsMeta = cm.metaBuilder("reports").build();
-        cm.register(reportsMeta, new ReportsCommand(this, reportManager, config, authService));
+        this.reportsCommand = new ReportsCommand(this, reportManager, config, authService);
+        cm.register(reportsMeta, reportsCommand);
 
         CommandMeta historyMeta = cm.metaBuilder("reporthistory").build();
-        cm.register(historyMeta, new ReportHistoryCommand(this, reportManager, config));
+        this.reportHistoryCommand = new ReportHistoryCommand(this, reportManager, config);
+        cm.register(historyMeta, reportHistoryCommand);
 
         logger.info("ReportSystem enabled.");
     }
@@ -102,6 +108,9 @@ public final class ReportSystem {
             reportManager.setConfig(newCfg);
             chatLogService.setConfig(newCfg);
             notifier.setConfig(newCfg);
+            if (reportCommand != null) reportCommand.setConfig(newCfg);
+            if (reportsCommand != null) reportsCommand.setConfig(newCfg);
+            if (reportHistoryCommand != null) reportHistoryCommand.setConfig(newCfg);
 
             if (webServer != null) {
                 webServer.stop();

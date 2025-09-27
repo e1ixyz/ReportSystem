@@ -120,42 +120,37 @@ public class PluginConfig {
     }
 
     /**
-     * Multi-factor priority:
-     * Each factor can be enabled/disabled and weighted. Final score is:
-     *   score = Σ (enabled ? weight * factorValue : 0)
-     * Factors:
-     *   - stackCount: more duplicate reports → higher priority
-     *   - recencyDecay: newer reports score more; decays by half-life (minutes)
-     *   - categoryWeight: per-category boost (via map)
-     *   - targetOnline: boost if reported player is currently online
-     *   - unassignedBoost: boost if nobody has claimed it yet
-     *   - escalatingStatus: optional future use (left on for extension)
+     * Multi-factor priority configuration. Each factor contributes a weighted score
+     * when enabled; the intent is to keep values near the 0–1 range so weighting stays
+     * intuitive for server owners tweaking config.yml.
      */
     public static class PriorityConfig {
         public boolean enabled = true;
 
-        public boolean useStackCount = true;
-        public double weightStackCount = 1.0;
+        public boolean useCount = true;
+        public boolean useRecency = true;
+        public boolean useSeverity = true;
+        public boolean useEvidence = true;
+        public boolean useUnassigned = true;
+        public boolean useAging = true;
+        public boolean useSlaBreach = true;
 
-        public boolean useRecencyDecay = true;
-        public double weightRecencyDecay = 1.0;
-        /** minutes until score halves (e.g., 60 = half every hour) */
-        public int recencyHalfLifeMinutes = 60;
+        public double weightCount = 2.0;
+        public double weightRecency = 2.0;
+        public double weightSeverity = 3.0;
+        public double weightEvidence = 1.0;
+        public double weightUnassigned = 0.5;
+        public double weightAging = 1.0;
+        public double weightSlaBreach = 4.0;
 
-        public boolean useCategoryWeight = true;
-        public double weightCategory = 1.0;
-        /** categoryId -> numeric weight (e.g., "cheating": 2.0) */
-        public Map<String, Double> categoryWeights = new LinkedHashMap<>();
+        /** Exponential decay constant for recency in milliseconds. */
+        public double tauMs = 900_000d; // 15 minutes by default
 
-        public boolean useTargetOnline = true;
-        public double weightTargetOnline = 0.5;
+        /** "typeId/categoryId" -> severity weight. */
+        public Map<String, Double> severityByKey = new LinkedHashMap<>();
 
-        public boolean useUnassignedBoost = true;
-        public double weightUnassigned = 0.25;
-
-        // placeholder for future expansion
-        public boolean useEscalatingStatus = false;
-        public double weightEscalatingStatus = 0.0;
+        /** SLA targets in minutes per "typeId/categoryId" key. */
+        public Map<String, Integer> slaMinutes = new LinkedHashMap<>();
     }
 
     /* -------------------- minimal loader stubs -------------------- */

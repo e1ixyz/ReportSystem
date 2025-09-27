@@ -108,12 +108,26 @@ public class ReportManager {
     /** Fetch by id. */
     public Report get(long id) { return reports.get(id); }
 
-    /** Open reports sorted by priority (count desc) then tie-breaker time). */
+    /** Open reports sorted by priority (configurable multi-factor scoring). */
     public List<Report> getOpenReportsDescending() {
-        // ensure we can sort this (mutable)
         List<Report> list = reports.values().stream()
                 .filter(Report::isOpen)
                 .collect(Collectors.toCollection(ArrayList::new));
+
+        var priority = config.priority;
+        if (priority != null && priority.enabled) {
+            long now = System.currentTimeMillis();
+            list.sort((a, b) -> {
+                double sb = computePriorityScore(b, now, priority);
+                double sa = computePriorityScore(a, now, priority);
+                int cmp = Double.compare(sb, sa);
+                if (cmp != 0) return cmp;
+                return Long.compare(b.timestamp, a.timestamp);
+            });
+            return list;
+        }
+
+        // fallback: simple count and timestamp ordering
         list.sort((a, b) -> {
             int byCount = Integer.compare(b.count, a.count);
             if (byCount != 0) return byCount;
@@ -122,6 +136,16 @@ public class ReportManager {
                           : Long.compare(a.timestamp, b.timestamp);
         });
         return list;
+    }
+
+    /** Lightweight look-up for ChatLogService: open reports where reported equals name. */
+    public List<Report> getOpenReportsFor(String reportedName) {
+        if (reportedName == null || reportedName.isBlank()) return List.of();
+        String needle = reportedName.toLowerCase(Locale.ROOT);
+        return reports.values().stream()
+                .filter(Report::isOpen)
+                .filter(r -> r.reported != null && r.reported.toLowerCase(Locale.ROOT).equals(needle))
+                .collect(Collectors.toList());
     }
 
     /** Closed reports newest-closed first (tracked via closedAtById; fallback to timestamp). */
@@ -451,5 +475,167 @@ public class ReportManager {
         long maxId = reports.keySet().stream().mapToLong(Long::longValue).max().orElse(0);
         return "reports=" + reports.size() + " open=" + open + " closed=" + closed
                 + " nextId=" + nextId.get() + " maxId=" + maxId + " now=" + Instant.now();
+    }
+
+    private double computePriorityScore(Report r, long now, PluginConfig.PriorityConfig priority) {
+        return computePriorityBreakdown(r, now, priority, false).total;
+    }
+
+    public PriorityBreakdown debugPriority(Report r) {
+        if (r == null) return PriorityBreakdown.disabled(config.tieBreaker);
+        return computePriorityBreakdown(r, System.currentTimeMillis(), config.priority, true);
+    }
+
+    private PriorityBreakdown computePriorityBreakdown(Report r, long now, PluginConfig.PriorityConfig priority, boolean detailed) {
+        if (priority == null || !priority.enabled) {
+            return PriorityBreakdown.disabled(config.tieBreaker);
+        }
+
+        List<PriorityBreakdown.Component> details = detailed ? new ArrayList<>() : null;
+        double total = 0d;
+
+        if (priority.useCount) {
+            double value = Math.max(1, r.count);
+            double contribution = priority.weightCount * value;
+            total += contribution;
+            if (details != null) {
+                String reason = (r.count <= 1)
+                        ? "Single report"
+                        : r.count + " reports stacked";
+                details.add(new PriorityBreakdown.Component("Count", priority.weightCount, value, contribution, reason));
+            }
+        }
+
+        if (priority.useRecency) {
+            long last = lastUpdateMillis.getOrDefault(r.id, r.timestamp);
+            long age = Math.max(0, now - last);
+            double tau = priority.tauMs <= 0 ? 1d : priority.tauMs;
+            double recency = Math.exp(-age / tau);
+            double contribution = priority.weightRecency * recency;
+            total += contribution;
+            if (details != null) {
+                String reason = "Last update " + formatDuration(age) + " ago, decay=" + formatDouble(recency);
+                details.add(new PriorityBreakdown.Component("Recency", priority.weightRecency, recency, contribution, reason));
+            }
+        }
+
+        if (priority.useSeverity) {
+            String key = (r.typeId == null ? "" : r.typeId.toLowerCase(Locale.ROOT)) + "/"
+                    + (r.categoryId == null ? "" : r.categoryId.toLowerCase(Locale.ROOT));
+            double sev = priority.severityByKey.getOrDefault(key, 1d);
+            double contribution = priority.weightSeverity * sev;
+            total += contribution;
+            if (details != null) {
+                String reason = "Configured weight for " + (key.isBlank() ? "default" : key) + " = " + formatDouble(sev);
+                details.add(new PriorityBreakdown.Component("Severity", priority.weightSeverity, sev, contribution, reason));
+            }
+        }
+
+        if (priority.useEvidence) {
+            int lines = (r.chat == null) ? 0 : r.chat.size();
+            boolean hasEvidence = lines > 0;
+            double value = hasEvidence ? Math.min(1d, lines / 10.0) : 0d;
+            double contribution = priority.weightEvidence * value;
+            total += contribution;
+            if (details != null) {
+                String reason = hasEvidence ? lines + " chat lines captured" : "No chat evidence";
+                details.add(new PriorityBreakdown.Component("Evidence", priority.weightEvidence, value, contribution, reason));
+            }
+        }
+
+        if (priority.useUnassigned) {
+            boolean unassigned = r.assignee == null || r.assignee.isBlank();
+            double value = unassigned ? 1d : 0d;
+            double contribution = priority.weightUnassigned * value;
+            total += contribution;
+            if (details != null) {
+                String reason = unassigned ? "Unassigned" : "Assigned to " + r.assignee;
+                details.add(new PriorityBreakdown.Component("Unassigned", priority.weightUnassigned, value, contribution, reason));
+            }
+        }
+
+        if (priority.useAging) {
+            long ageMs = Math.max(0, now - r.timestamp);
+            double aging = Math.log1p(ageMs / 60_000d);
+            double contribution = priority.weightAging * aging;
+            total += contribution;
+            if (details != null) {
+                String reason = "Report age " + formatDuration(ageMs) + " -> log factor=" + formatDouble(aging);
+                details.add(new PriorityBreakdown.Component("Aging", priority.weightAging, aging, contribution, reason));
+            }
+        }
+
+        if (priority.useSlaBreach) {
+            String key = (r.typeId == null ? "" : r.typeId.toLowerCase(Locale.ROOT)) + "/"
+                    + (r.categoryId == null ? "" : r.categoryId.toLowerCase(Locale.ROOT));
+            Integer sla = priority.slaMinutes.get(key);
+            double contribution = 0d;
+            double value = 0d;
+            String reason;
+            if (sla == null || sla <= 0) {
+                reason = "No SLA configured for " + (key.isBlank() ? "default" : key);
+            } else {
+                double ageMinutes = Math.max(0d, (now - r.timestamp) / 60_000d);
+                value = ageMinutes <= sla ? 0d : Math.min(1d, (ageMinutes - sla) / sla);
+                contribution = priority.weightSlaBreach * value;
+                reason = "Age " + formatDouble(ageMinutes) + "m vs SLA " + sla + "m";
+            }
+            total += contribution;
+            if (details != null) {
+                details.add(new PriorityBreakdown.Component("SLA Breach", priority.weightSlaBreach, value, contribution, reason));
+            }
+        }
+
+        List<PriorityBreakdown.Component> out = details == null ? List.of() : List.copyOf(details);
+        return new PriorityBreakdown(true, total, out, config.tieBreaker);
+    }
+
+    private static String formatDuration(long millis) {
+        long seconds = Math.max(0, millis / 1000);
+        long minutes = seconds / 60;
+        long hours = minutes / 60;
+        seconds %= 60;
+        minutes %= 60;
+        if (hours > 0) return hours + "h " + minutes + "m " + seconds + "s";
+        if (minutes > 0) return minutes + "m " + seconds + "s";
+        return seconds + "s";
+    }
+
+    private static String formatDouble(double value) {
+        return String.format(Locale.US, "%.2f", value);
+    }
+
+    public static final class PriorityBreakdown {
+        public final boolean enabled;
+        public final double total;
+        public final List<Component> components;
+        public final String tieBreaker;
+
+        private PriorityBreakdown(boolean enabled, double total, List<Component> components, String tieBreaker) {
+            this.enabled = enabled;
+            this.total = total;
+            this.components = components;
+            this.tieBreaker = tieBreaker == null || tieBreaker.isBlank() ? "newest" : tieBreaker;
+        }
+
+        public static PriorityBreakdown disabled(String tieBreaker) {
+            return new PriorityBreakdown(false, 0d, List.of(), tieBreaker);
+        }
+
+        public static final class Component {
+            public final String name;
+            public final double weight;
+            public final double value;
+            public final double contribution;
+            public final String reason;
+
+            public Component(String name, double weight, double value, double contribution, String reason) {
+                this.name = name;
+                this.weight = weight;
+                this.value = value;
+                this.contribution = contribution;
+                this.reason = reason;
+            }
+        }
     }
 }

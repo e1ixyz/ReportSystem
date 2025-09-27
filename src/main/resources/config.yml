@@ -121,6 +121,7 @@ messages:
   self-report-denied: "You cannot report yourself."
   report-stacked: "Report stacked into #%id% (now x%count%)"
   report-filed: "Report filed! (ID #%id%)"
+  report-cooldown: "<red>You must wait %seconds% seconds before filing another report.</red>"
 
   # Common
   not-found: "No such report: #%id%"
@@ -148,6 +149,7 @@ messages:
   tip-expand: "Click to expand"
   tip-open-browser: "Open in browser"
   tip-open-login: "Open login page"
+  auth-no-base-url: "<red>No public URL configured. Set public-base-url or http-server.external-base-url.</red>"
   tip-prev: "Previous page"
   tip-next: "Next page"
   tip-reload: "Reload reports"
