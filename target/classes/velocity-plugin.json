@@ -1,8 +1,8 @@
 {
   "id": "reportsystem",
   "name": "ReportSystem",
-  "version": "2.0.0",
-  "description": "Dynamic reports with stacking, pagination, search, assignees, and chat logs.",
+  "version": "3.0.0",
+  "description": "Dynamic reports with mutli-factor report sorting, pagination, search, assignees, chat log webserver, and more.",
   "authors": ["e1ixyz"],
   "main": "com.example.reportsystem.ReportSystem"
 }

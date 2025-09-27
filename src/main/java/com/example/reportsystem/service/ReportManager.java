@@ -30,14 +30,18 @@ import java.util.stream.Collectors;
  * - Closed reports ordering tracked via internal closedAt map (Report has no closedAt field)
  * - Search by simple query
  * - Assign/Unassign/Close/Reopen
- * - Chat append support for ChatLogService
+ * - Chat append support + initial chat capture from ChatLogService buffer
  */
 public class ReportManager {
+
+    private static final long INITIAL_CHAT_WINDOW_MS = 90_000L; // pull last 90s on creation
 
     private final ReportSystem plugin;
     private final Logger log;
     private final Path storeDir;
     private volatile PluginConfig config;
+
+    private volatile ChatLogService chat; // optional; injected by ChatLogService constructor
 
     private final Map<Long, Report> reports = new ConcurrentHashMap<>();
     private final AtomicLong nextId = new AtomicLong(1);
@@ -74,6 +78,11 @@ public class ReportManager {
         this.config = cfg;
     }
 
+    /** Called by ChatLogService so we can pull recent lines on new report creation. */
+    public void setChatLogService(ChatLogService chat) {
+        this.chat = chat;
+    }
+
     /** Resolve dynamic type/category from config; null if invalid. */
     public ReportType resolveType(String typeId, String categoryId) {
         if (typeId == null || categoryId == null) return null;
@@ -99,11 +108,12 @@ public class ReportManager {
     /** Fetch by id. */
     public Report get(long id) { return reports.get(id); }
 
-    /** Open reports sorted by priority (count desc) then tie-breaker time. */
+    /** Open reports sorted by priority (count desc) then tie-breaker time). */
     public List<Report> getOpenReportsDescending() {
+        // ensure we can sort this (mutable)
         List<Report> list = reports.values().stream()
                 .filter(Report::isOpen)
-                .collect(Collectors.toList());
+                .collect(Collectors.toCollection(ArrayList::new));
         list.sort((a, b) -> {
             int byCount = Integer.compare(b.count, a.count);
             if (byCount != 0) return byCount;
@@ -118,7 +128,7 @@ public class ReportManager {
     public List<Report> getClosedReportsDescending() {
         List<Report> list = reports.values().stream()
                 .filter(r -> !r.isOpen())
-                .collect(Collectors.toList());
+                .collect(Collectors.toCollection(ArrayList::new));
         list.sort((a, b) -> {
             long ca = closedAtById.getOrDefault(a.id, a.timestamp);
             long cb = closedAtById.getOrDefault(b.id, b.timestamp);
@@ -179,6 +189,15 @@ public class ReportManager {
         r.status = ReportStatus.OPEN;
         r.assignee = null;
 
+        // Attach initial chat from rolling buffer (for the TARGET)
+        if (chat != null && r.reported != null && !r.reported.isBlank()) {
+            List<ChatMessage> recent = chat.recentFor(r.reported, INITIAL_CHAT_WINDOW_MS);
+            if (recent != null && !recent.isEmpty()) {
+                if (r.chat == null) r.chat = new ArrayList<>();
+                r.chat.addAll(recent);
+            }
+        }
+
         reports.put(id, r);
         lastUpdateMillis.put(id, now);
         closedAtById.remove(id);
@@ -213,6 +232,14 @@ public class ReportManager {
     public boolean isAssigned(long id) {
         Report r = reports.get(id);
         return r != null && r.assignee != null && !r.assignee.isBlank();
+    }
+
+    /** Optional: persist the source server the report was filed from. */
+    public void updateSourceServer(long id, String server) {
+        Report r = reports.get(id);
+        if (r == null) return;
+        r.sourceServer = (server == null || server.isBlank()) ? null : server;
+        trySave(r);
     }
 
     /** Close/Reopen. */
@@ -343,6 +370,7 @@ public class ReportManager {
         m.put("timestamp", r.timestamp);
         m.put("status", r.status == null ? ReportStatus.OPEN.name() : r.status.name());
         m.put("assignee", nullIfBlank(r.assignee));
+        m.put("sourceServer", nullIfBlank(r.sourceServer));
         long closedAt = closedAtById.getOrDefault(r.id, 0L);
         m.put("closedAt", closedAt);
 
@@ -381,6 +409,7 @@ public class ReportManager {
             String st = asStr(m.get("status"));
             r.status = (st == null || st.isBlank()) ? ReportStatus.OPEN : ReportStatus.valueOf(st);
             r.assignee = asStr(m.get("assignee"));
+            r.sourceServer = asStr(m.get("sourceServer"));
 
             Object chatObj = m.get("chat");
             if (chatObj instanceof List<?> list) {

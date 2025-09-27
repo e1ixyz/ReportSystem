@@ -1,15 +1,18 @@
 package com.example.reportsystem.model;
 
 public class ChatMessage {
-    public final long time;
-    public final String server;
-    public final String player;
-    public final String message;
+    public long time;
+    public String player;
+    public String server;
+    public String message;
 
-    public ChatMessage(long time, String server, String player, String message) {
+    public ChatMessage() {}
+
+    // IMPORTANT: keep this exact parameter order everywhere.
+    public ChatMessage(long time, String player, String server, String message) {
         this.time = time;
-        this.server = server;
         this.player = player;
+        this.server = server;
         this.message = message;
     }
 }

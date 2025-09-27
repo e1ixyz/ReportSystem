@@ -19,7 +19,7 @@ public class Report {
     /** Optional assignee username (staff) */
     public String assignee = null;
 
-    /** NEW: where the report was filed from (proxy server name) */
+    /** where the report was filed from (proxy server name) */
     public String sourceServer = null;
 
     /** Chat messages captured for chat reports */

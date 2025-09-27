@@ -14,18 +14,20 @@ import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
 import net.kyori.adventure.text.Component;
 
-import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
 /**
  * Staff /reports command with:
- * - /reports claim (highest priority)
- * - /reports claimed (my claims)
+ * - /reports claim (highest priority or /reports claim <id>)
+ * - /reports claimed (my claimed reports)
  * - /reports <type> [category] filtering
  * - Admin-only: reload, logoutall, force-claim checks via permission
- * - Uppercase EXPAND labels; list shows Target / Assigned / Server
+ * - Configurable EXPAND label (messages.yml: label-expand) + tip-expand hover everywhere
+ * - Chat logs view:
+ *      * if http-server.enabled -> export & show link only
+ *      * if http-server.disabled -> paginated inline chat: /reports chat <id> [page]
  */
 public class ReportsCommand implements SimpleCommand {
 
@@ -52,7 +54,7 @@ public class ReportsCommand implements SimpleCommand {
         String[] args = inv.arguments();
         if (args.length == 0) { showPage(src, 1, null, null); return; }
 
-        // Allow `/reports <type> [category]`
+        // Allow `/reports <type> [category]` for quick filtering
         String maybeType = args[0];
         if (isKnownType(maybeType)) {
             String typeFilter = maybeType;
@@ -128,8 +130,9 @@ public class ReportsCommand implements SimpleCommand {
                     Text.msg(src, "<gray>You have no claimed reports.</gray>");
                 } else {
                     Text.msg(src, "<gray>Your claimed reports:</gray>");
+                    String tip = expandTip();
                     for (Report r : mine) {
-                        Text.msg(src, fmtListLine(r) + "  <gray>[</gray><aqua><click:run_command:'/reports view "+r.id+"'>EXPAND</click></aqua><gray>]</gray>");
+                        Text.msg(src, fmtListLine(r) + "  <gray>[</gray><aqua><hover:show_text:'" + Text.escape(tip) + "'><click:run_command:'/reports view " + r.id + "'>" + expandLabel() + "</click></hover></aqua><gray>]</gray>");
                     }
                 }
             }
@@ -151,55 +154,40 @@ public class ReportsCommand implements SimpleCommand {
             }
 
             case "chat" -> {
-                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports chat <id>"); return; }
+                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports chat <id> [page]"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) {
                     Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
                     return;
                 }
-
-                String assignee = (r.assignee == null || r.assignee.isBlank()) ? "—" : r.assignee;
-                Text.msg(src, "<gray>Target:</gray> <white>" + (r.reported == null ? "UNKNOWN" : r.reported) + "</white>");
-                Text.msg(src, "<gray>Assigned to:</gray> <white>" + assignee + "</white>");
-
                 if (r.chat == null || r.chat.isEmpty()) {
                     Text.msg(src, config.msg("chatlog-none","No chat messages were captured for this report."));
                     return;
                 }
 
-                if (config.exportHtmlChatlog) {
+                boolean webEnabled = config.httpServer != null && config.httpServer.enabled;
+                if (webEnabled) {
                     try {
-                        Path html = new HtmlExporter(plugin, config).export(r);
+                        // Ensure export exists (do not show local path)
+                        new HtmlExporter(plugin, config).export(r);
                         String link = buildPublicLinkFor(r);
-                        if (link != null) {
-                            String tip = config.msg("tip-open-browser", "Open in browser");
-                            Text.msg(src, "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + link + "'>Open chat log</click></hover></aqua><gray>]</gray>");
-                        } else {
-                            String pathStr = html.toAbsolutePath().toString();
-                            String tip = config.msg("tip-copy-path", "Copy local path");
-                            Text.msg(src, "<gray>Saved chat log:</gray> <white>" + Text.escape(pathStr) + "</white>");
-                            Text.msg(src, "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:suggest_command:'" + Text.escape(pathStr) + "'>copy path</click></hover></aqua><gray>]</gray>");
+                        if (link == null || link.isBlank()) {
+                            Text.msg(src, "<red>Web viewer is enabled but external/public base URL is not configured.</red>");
+                            return;
                         }
+                        String tip = config.msg("tip-open-browser", "Open in browser");
+                        Text.msg(src, "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + link + "'>"+config.msg("open-chatlog-label","Open chat log")+"</click></hover></aqua><gray>]</gray>");
                     } catch (Exception ex) {
                         Text.msg(src, "<red>Failed to export HTML chat log:</red> <gray>"+Text.escape(ex.getMessage())+"</gray>");
                     }
                 } else {
-                    Text.msg(src, "<gray>Showing up to "+config.previewLines+" chat lines for #"+r.id+" (truncated):</gray>");
-                    int n = Math.min(Math.max(1, config.previewLines), r.chat.size());
-                    for (int i=0;i<n;i++) {
-                        var m = r.chat.get(i);
-                        String raw = "["+ TimeUtil.formatTime(m.time)+"] "+m.player+"@"+m.server+": "+m.message;
-                        String safe = Text.escape(raw);
-                        if (safe.length() > config.previewLineMaxChars) {
-                            int lim = Math.max(0, config.previewLineMaxChars - 1);
-                            safe = safe.substring(0, lim) + "…";
-                        }
-                        Text.msg(src, "<gray>"+ safe +"</gray>");
+                    // Paginated inline echo
+                    int page = 1;
+                    if (args.length >= 3) {
+                        try { page = Math.max(1, Integer.parseInt(args[2])); } catch (Exception ignored) {}
                     }
-                    if (r.chat.size() > n) {
-                        Text.msg(src, "<gray>…and "+(r.chat.size()-n)+" more lines.</gray>");
-                    }
+                    showChatPage(src, r, page);
                 }
             }
 
@@ -258,11 +246,11 @@ public class ReportsCommand implements SimpleCommand {
                 Text.msg(src, config.msg("search-header","Search: %query% (%scope%)")
                         .replace("%query%", query).replace("%scope%", scope));
                 int shown = 0, limit = Math.min(30, results.size());
-                String expandTip = "EXPAND";
+                String tip = expandTip();
                 for (int i=0;i<limit;i++) {
                     Report r = results.get(i);
                     String line = fmtListLine(r)
-                            + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(expandTip)+"'><click:run_command:'/reports view "+r.id+"'>EXPAND</click></hover></aqua><gray>]</gray>";
+                            + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:run_command:'/reports view "+r.id+"'>"+expandLabel()+"</click></hover></aqua><gray>]</gray>";
                     Text.msg(src, line);
                     shown++;
                 }
@@ -424,10 +412,10 @@ public class ReportsCommand implements SimpleCommand {
                        .replace("%pages%", String.valueOf(pages));
         Text.msg(src, header);
 
-        String expandTip = "EXPAND";
+        String tip = expandTip();
         for (Report r : Pagination.paginate(open, per, page)) {
             String line = fmtListLine(r)
-                    + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(expandTip)+"'><click:run_command:'/reports view "+r.id+"'>EXPAND</click></hover></aqua><gray>]</gray>";
+                    + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:run_command:'/reports view "+r.id+"'>"+expandLabel()+"</click></hover></aqua><gray>]</gray>";
             Text.msg(src, line);
         }
 
@@ -440,16 +428,51 @@ public class ReportsCommand implements SimpleCommand {
         src.sendMessage(nav);
     }
 
-    /** One-line list format with Target / Assigned / Server (derived from latest chat). */
+    /** One-line list format: (type/category) Target [Assigned] [Server] + hover tips. */
     private String fmtListLine(Report r) {
-        String server = inferServer(r);
+        String target = (r.reported == null || r.reported.isBlank()) ? "UNKNOWN" : r.reported;
         String assignee = (r.assignee == null || r.assignee.isBlank()) ? "—" : r.assignee;
+        String server = deriveServer(r);
+        if (server == null || server.isBlank()) server = "UNKNOWN";
+
+        String tipTarget = config.msg("tip-target", "Target: %name%").replace("%name%", target);
+        String tipAssigned = config.msg("tip-assigned", "Assigned: %name%").replace("%name%", "—".equals(assignee) ? "None" : assignee);
+        String tipServer = config.msg("tip-server", "Server: %name%").replace("%name%", server);
+
+        String targetSeg =
+                "<hover:show_text:'"+ Text.escape(tipTarget) +"'><white>"+ Text.escape(target) +"</white></hover>";
+        String assignedSeg =
+                "<hover:show_text:'"+ Text.escape(tipAssigned) +"'><gray>[</gray><white>"+ Text.escape(assignee) +"</white><gray>]</gray></hover>";
+        String serverSeg =
+                "<hover:show_text:'"+ Text.escape(tipServer) +"'><gray>[</gray><white>"+ Text.escape(server) +"</white><gray>]</gray></hover>";
+
         return "<white>#"+r.id+"</white> "
                 + "<gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray> "
-                + "<gray>Target:</gray> <white>"+(r.reported == null ? "UNKNOWN" : r.reported)+"</white> "
-                + "<gray>Assigned:</gray> <white>"+assignee+"</white> "
-                + "<gray>Server:</gray> <white>"+server+"</white>"
+                + targetSeg + " " + assignedSeg + " " + serverSeg
                 + colorStackBadge(r.count);
+    }
+
+    /** Prefer target's current server, then sourceServer, then newest chat server. */
+    private String deriveServer(Report r) {
+        // 1) target online now?
+        if (r.reported != null && !r.reported.isBlank()) {
+            var opt = plugin.proxy().getPlayer(r.reported);
+            if (opt.isPresent()) {
+                var sv = opt.get().getCurrentServer().map(s -> s.getServerInfo().getName()).orElse(null);
+                if (sv != null && !sv.isBlank()) return sv;
+            }
+        }
+        // 2) source server (where the report was filed from)
+        if (r.sourceServer != null && !r.sourceServer.isBlank()) return r.sourceServer;
+
+        // 3) newest chat line's server
+        if (r.chat != null && !r.chat.isEmpty()) {
+            return r.chat.stream()
+                    .max(Comparator.comparingLong(cm -> cm.time))
+                    .map(cm -> (cm.server == null || cm.server.isBlank()) ? null : cm.server)
+                    .orElse(null);
+        }
+        return null;
     }
 
     private String colorStackBadge(int count) {
@@ -496,15 +519,6 @@ public class ReportsCommand implements SimpleCommand {
         return base + "/" + p;
     }
 
-    /** Infer server from the newest chat message (falls back to UNKNOWN). */
-    private String inferServer(Report r) {
-        if (r == null || r.chat == null || r.chat.isEmpty()) return "UNKNOWN";
-        return r.chat.stream()
-                .max(Comparator.comparingLong(cm -> cm.time))
-                .map(cm -> cm.server == null || cm.server.isBlank() ? "UNKNOWN" : cm.server)
-                .orElse("UNKNOWN");
-    }
-
     /** Expanded view for a single report (used by "view"). */
     private void expand(CommandSource src, Report r) {
         String header = config.msg("expanded-header","Report #%id% (%type% / %category%)")
@@ -513,7 +527,8 @@ public class ReportsCommand implements SimpleCommand {
                 .replace("%category%", r.categoryDisplay);
         Text.msg(src, header);
 
-        String serverName = inferServer(r);
+        String serverName = deriveServer(r);
+        if (serverName == null || serverName.isBlank()) serverName = "UNKNOWN";
         String serverLine = config.msg("expanded-server-line", "<gray>Server:</gray> <white>%server%</white>")
                 .replace("%server%", serverName);
         Text.msg(src, serverLine);
@@ -548,22 +563,25 @@ public class ReportsCommand implements SimpleCommand {
         String tipChat  = config.msg("tip-chat", "View chat logs");
         String tipJump  = config.msg("tip-jump-server", "Connect to this server");
 
-        String jumpCmdTemplate = config.msg("jump-command-template", "/server %server%");
-        String jumpCmd = jumpCmdTemplate.replace("%server%", serverName);
-
         StringBuilder actions = new StringBuilder();
         actions.append("<gray>[</gray><green><hover:show_text:'").append(Text.escape(tipClose))
                 .append("'><click:run_command:'/reports close ").append(r.id).append("'>Close</click></hover></green><gray>]</gray> ");
         actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipChat))
                 .append("'><click:run_command:'/reports chat ").append(r.id).append("'>Chat Logs</click></hover></aqua><gray>]</gray> ");
 
-        if (!"UNKNOWN".equalsIgnoreCase(serverName)) {
+        // Only show Jump if the server actually exists on the proxy
+        if (!"UNKNOWN".equalsIgnoreCase(serverName)
+                && plugin.proxy().getServer(serverName).isPresent()) {
+
+            String jumpCmdTemplate = config.msg("jump-command-template", "/server %server%");
+            String jumpCmd = jumpCmdTemplate.replace("%server%", serverName);
+
             actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipJump))
                     .append("'><click:run_command:'").append(Text.escape(jumpCmd))
                     .append("'>Jump to server</click></hover></aqua><gray>]</gray> ");
         }
 
-        // Cleaner quick-assign buttons
+        // Quick-assign buttons
         if (src instanceof Player p) {
             boolean assigned = r.assignee != null && !r.assignee.isBlank();
             boolean mine = assigned && p.getUsername().equalsIgnoreCase(r.assignee);
@@ -582,5 +600,51 @@ public class ReportsCommand implements SimpleCommand {
         }
 
         Text.msg(src, actions.toString());
+    }
+
+    /** Paginated inline chat output when web viewer is disabled. */
+    private void showChatPage(CommandSource src, Report r, int page) {
+        int per = Math.max(1, config.previewLines);
+        int total = r.chat.size();
+        int pages = Math.max(1, (int)Math.ceil(total / (double) per));
+        page = Math.min(Math.max(1, page), pages);
+
+        int start = (page - 1) * per;
+        int end = Math.min(start + per, total);
+
+        Text.msg(src, "<gray>Chat for #"+r.id+" — page "+page+"/"+pages+" ("+total+" lines):</gray>");
+        for (int i = start; i < end; i++) {
+            var m = r.chat.get(i);
+            String raw = "["+ TimeUtil.formatTime(m.time)+"] "+m.player+"@"+m.server+": "+m.message;
+            String safe = Text.escape(raw);
+            if (safe.length() > config.previewLineMaxChars) {
+                int lim = Math.max(0, config.previewLineMaxChars - 1);
+                safe = safe.substring(0, lim) + "…";
+            }
+            Text.msg(src, "<gray>"+ safe +"</gray>");
+        }
+
+        if (pages > 1) {
+            String prevTip = config.msg("tip-prev", "Previous page");
+            String nextTip = config.msg("tip-next", "Next page");
+            int prev = Math.max(1, page - 1);
+            int next = Math.min(pages, page + 1);
+            Component nav = Text.mm(
+                    "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(prevTip)+"'><click:run_command:'/reports chat "+r.id+" "+prev+"'>« Prev</click></hover></aqua><gray>] " +
+                    "[</gray><aqua><hover:show_text:'"+Text.escape(nextTip)+"'><click:run_command:'/reports chat "+r.id+" "+next+"'>Next »</click></hover></aqua><gray>]</gray>"
+            );
+            src.sendMessage(nav);
+        }
+    }
+
+    /** Configurable label for EXPAND button; defaults to "EXPAND". */
+    private String expandLabel() {
+        String s = config.msg("label-expand", "EXPAND"); // unified key
+        return (s == null || s.isBlank()) ? "EXPAND" : s;
+    }
+    /** Hover tooltip for the expand button. */
+    private String expandTip() {
+        String s = config.msg("tip-expand", "Expand");
+        return (s == null || s.isBlank()) ? "Expand" : s;
     }
 }

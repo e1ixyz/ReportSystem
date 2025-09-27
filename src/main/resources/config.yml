@@ -3,16 +3,17 @@
 # ------------------------------------------------------------------------------------
 # CORE
 # ------------------------------------------------------------------------------------
-allow-self-report: false                 # Allow players to report themselves?
+allow-self-report: true                  # Allow players to report themselves?
 stack-window-seconds: 600                # Seconds to merge ("stack") identical reports (same target/type/category)
-export-html-chatlog: true               # If true, chat logs export to HTML on /reports chat
-html-export-dir: "html-logs"            # Folder under the plugin data directory for HTML exports
+export-html-chatlog: true                # If true, chat logs export to HTML (used when web viewer is enabled)
+html-export-dir: "html-logs"             # Folder under the plugin data directory for HTML exports
 reports-per-page: 10
 
 # Permissions
-staff-permission: "reportsystem.reports"        # Staff can use /reports, bypass cooldown, view protected web pages, etc.
-notify-permission: "reportsystem.notify"        # Staff who should receive ingame notifications about new reports
-force-claim-permission: "reportsystem.forceclaim"  # Staff who may override someone else’s claim
+staff-permission: "reportsystem.reports"          # Staff can use /reports, bypass cooldown, view protected web pages, etc.
+notify-permission: "reportsystem.notify"          # Staff who should receive ingame notifications about new reports
+force-claim-permission: "reportsystem.forceclaim" # Staff who may override someone else’s claim
+admin-permission: "reportsystem.admin"            # Admin-only: /reports reload, /reports logoutall, force-claim override fallback
 
 # ------------------------------------------------------------------------------------
 # REPORT COOLDOWN
@@ -22,7 +23,7 @@ force-claim-permission: "reportsystem.forceclaim"  # Staff who may override some
 report-cooldown-seconds: 60
 
 # ------------------------------------------------------------------------------------
-# INLINE PREVIEW (safety for ingame chat previews)
+# INLINE PREVIEW (safe inline chat previews)
 # ------------------------------------------------------------------------------------
 preview-lines: 10
 preview-line-max-chars: 200
@@ -32,22 +33,22 @@ preview-line-max-chars: 200
 # ------------------------------------------------------------------------------------
 # Leave blank by default (no private domain committed). If you have a public domain later,
 # set EITHER public-base-url OR http-server.external-base-url (prefer public-base-url).
-public-base-url: ""                     # e.g. "https://reports.example.com"
+public-base-url: ""                      # e.g. "https://reports.example.com"
 
 http-server:
-  enabled: true                         # Built-in tiny web server to serve html-logs/
-  external-base-url: ""                 # e.g. "https://reports.example.com" (used for links when public-base-url is blank)
-  bind: "0.0.0.0"                       # Listen address
+  enabled: false                         # Built-in tiny web server to serve html-logs/
+  external-base-url: ""                  # e.g. "https://reports.example.com" (used for links when public-base-url is blank)
+  bind: "0.0.0.0"                        # Listen address
   port: 8085
-  base-path: "/"                        # Mount path (keep "/" unless you know you need a subpath)
+  base-path: "/"                         # Mount path (keep "/" unless you know you need a subpath)
 
 # ------------------------------------------------------------------------------------
-# LIGHTWEIGHT WEB AUTH
+# LIGHTWEIGHT WEB AUTH FOR HTTP SERVER
 # ------------------------------------------------------------------------------------
 auth:
-  enabled: true
+  enabled: false
   cookie-name: "rsid"
-  session-ttl-minutes: 1440             # Sliding session TTL (minutes)
+  session-ttl-minutes: 1440              # Sliding session TTL (minutes)
   code-ttl-seconds: 120                  # One-time code lifetime (seconds) for /reports auth
   code-length: 6
   secret: "change-me"                    # Change in production; used for signing session ids
@@ -69,33 +70,20 @@ discord:
 # ------------------------------------------------------------------------------------
 # MULTI-FACTOR PRIORITY SCORING
 # ------------------------------------------------------------------------------------
-# The system computes a numeric score for each open report to sort them. All factors
-# are (optionally) normalized to 0..1 and then combined linearly with weights.
-#
-# Effective Score = Sum( weight_i * factor_i ), only for factors whose "use-*" is true.
-#
-# The defaults aim to be sensible for a *large-scale* network (hundreds of reports/hour):
-# - Severity and SLA-breach get higher weights to pull critical cases to the top quickly.
-# - Recency and Count matter, but less than Severity/SLA.
-# - Evidence signal (e.g., chat captured) slightly boosts credibility.
-# - Unassigned and Aging help surface stale or ownerless reports.
-#
-# You can *disable* any factor (set use-...: false) or adjust its weight (w-...).
+# Effective Score = Sum( weight_i * factor_i ), for enabled factors only.
 priority:
   enabled: true
 
-  # ----------------- Enable/Disable individual factors -----------------
-  use-count: true        # Higher stack count => higher priority (signals repeated/duplicate reports)
-  use-recency: true      # Newer reports rank higher (exponential decay via tau-ms)
-  use-severity: true     # Per type/category severity mapping (see severity-by-key below)
-  use-evidence: true     # Has useful evidence? (e.g., captured chat for chat reports)
-  use-unassigned: true   # Small bump if a report is unassigned (encourages triage pickup)
-  use-aging: true        # Slight bump as time passes (counteracts recency decay to avoid starvation)
-  use-sla-breach: true   # Large bump if report is past SLA target (see sla-minutes)
+  # Enable/Disable individual factors
+  use-count: true
+  use-recency: true
+  use-severity: true
+  use-evidence: true
+  use-unassigned: true
+  use-aging: true
+  use-sla-breach: true
 
-  # ----------------- Weights (importance) -----------------
-  # Tip: Larger networks should keep SLA and Severity fairly high.
-  #      Recency and Count are next. Evidence, Aging, Unassigned are smaller nudge factors.
+  # Weights (importance)
   w-count: 2.0
   w-recency: 2.0
   w-severity: 3.0
@@ -104,40 +92,37 @@ priority:
   w-aging: 1.0
   w-sla-breach: 4.0
 
-  # ----------------- Normalization & shaping params -----------------
-  tau-ms: 900000         # 15 minutes exponential time constant for RECENCY decay:
-                         # recency = exp(-age_ms / tau_ms). New reports get ~1.0, older trend toward 0.
+  # Shaping
+  tau-ms: 900000           # 15 minutes exponential time constant for recency decay
 
-  # ----------------- Severity map -----------------
-  # Key format: "<typeId>/<categoryId>" (case-insensitive)
-  # Values are floats; typical range 0.5..3.0. Higher => more urgent by default.
+  # Severity map "<typeId>/<categoryId>": weight
   severity-by-key:
     "player/cheat": 3.0
     "server/crash": 2.5
     "player/chat": 1.0
     "player/ad": 1.5
-    # Add more categories as needed…
 
-  # ----------------- SLA targets (minutes) -----------------
-  # If an open report exceeds its SLA, it receives an SLA-breach bonus scaled toward 1 as time exceeds SLA.
-  # Example shaping (implementation detail): breach_ratio = clamp(age / (2 * sla), 0..1).
+  # SLA targets (minutes)
   sla-minutes:
     "player/cheat": 5
     "server/crash": 2
     "player/chat": 15
-    # Add more categories as needed…
 
 # ------------------------------------------------------------------------------------
 # MESSAGES / LOCALIZATION
 # ------------------------------------------------------------------------------------
 messages:
-  prefix: "<gray>[<gold>Reports</gold>]</gray> "
+  prefix: "<gray>[<blue>Reports</blue>]</gray> "
   no-permission: "<red>You don't have permission.</red>"
+
+  # /report UX
   usage-report: "Usage: /report <type> <category> [<target>] <reason...>"
   invalid-type: "Unknown type or category: %type%/%cat%"
   self-report-denied: "You cannot report yourself."
   report-stacked: "Report stacked into #%id% (now x%count%)"
   report-filed: "Report filed! (ID #%id%)"
+
+  # Common
   not-found: "No such report: #%id%"
   closed: "Closed report #%id%"
   assigned: "Assigned report #%id% to %assignee%"
@@ -147,11 +132,22 @@ messages:
   search-header: "Search: %query% (%scope%)"
   page-empty: "No open reports."
   page-header: "Reports Page %page%/%pages%"
+  page-header-filtered: "Reports (%type%/%cat%) Page %page%/%pages%"
   reloaded: "ReportSystem reloaded."
   chatlog-none: "No chat messages were captured for this report."
-  tip-open-browser: "Open in browser"
-  tip-copy-path: "Copy local path"
+
+  # Report history (closed)
+  history-page-empty: "No closed reports."
+  history-page-header: "Closed Reports Page %page%/%pages%"
+  already-open: "Report #%id% is already open."
+  reopened: "Reopened report #%id%"
+  tip-reopen: "Reopen this report"
+
+  # Buttons / tooltips (used everywhere)
+  label-expand: "^"                       # unified EXPAND label (used in lists, search, notifications)
   tip-expand: "Click to expand"
+  tip-open-browser: "Open in browser"
+  tip-open-login: "Open login page"
   tip-prev: "Previous page"
   tip-next: "Next page"
   tip-reload: "Reload reports"
@@ -161,9 +157,26 @@ messages:
   tip-assign-me: "Assign to me"
   tip-unassign: "Unassign"
   tip-force-claim: "Force-claim"
-  auth-code-ttl-s: "120"
+
+  # Hover tooltips for list line segments
+  tip-target: "Target: %name%"
+  tip-assigned: "Assigned: %name%"
+  tip-server: "Server: %name%"
+
+  # Expanded view
   expanded-header: "Report #%id% (%type% / %category%)"
   expanded-server-line: "<gray>Server:</gray> <white>%server%</white>"
+  expanded-lines:
+    - "<gray>Reported:</gray> <white>%target%</white> <gray>by</gray> <white>%player%</white>"
+    - "<gray>When:</gray> <white>%timestamp%</white>"
+    - "<gray>Count:</gray> <white>%count%</white>"
+    - "<gray>Reason(s):</gray> <white>%reasons%</white>"
+    - "<gray>Status:</gray> <white>%status%</white>"
+    - "<gray>Assignee:</gray> <white>%assignee%</white>"
+
+  # Chat log viewer (web and inline)
+  open-chatlog-label: "Open chat log"
+  auth-code-ttl-s: "120"
   jump-command-template: "/server %server%"
 
 # ------------------------------------------------------------------------------------
