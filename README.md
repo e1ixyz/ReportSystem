@@ -1,285 +1,246 @@
-**ReportSystem (Velocity)**
-===========================
+# ReportSystem (Velocity)
 
-A modern, staff-friendly report system for Velocity proxies.
+A modern, staff-friendly reporting and triage system for [Velocity](https://velocitypowered.com/) proxies.
 
-It captures context (chat), stacks duplicate reports, supports rich in-chat UI with hover tooltips, and can export HTML chat logs via a tiny built-in web server.
+It captures player chat context, supports dynamic report types, stacks duplicate reports, and provides a rich in-chat and web-based UI for staff. The plugin is actively maintained and built for performance, usability, and configurability.
 
-> **Status:** actively evolving. This README reflects the current feature set and the latest config/UX.
+---
 
-* * * * *
+## 📚 Table of Contents
 
-**✨ Features**
---------------
+- [✨ Features](#-features)
+- [🧰 Requirements](#-requirements)
+- [📦 Installation](#-installation)
+- [🧑‍💻 Commands](#-commands)
+  - [Player / Staff](#player--staff)
+  - [Staff Triage](#staff-triage)
+- [🖱️ In-Chat UI](#️-in-chat-ui)
+- [💬 Chat Capture](#-chat-capture)
+- [🔐 Permissions](#-permissions)
+- [⚙️ Configuration](#️-configuration)
+- [🔎 Stacking Logic](#-stacking-logic)
+- [🌐 Web Viewer & Auth](#-web-viewer--auth)
+- [🔔 Notifications](#-notifications)
+- [🤝 Contributors](#-contributors)
+- [📄 License](#-license)
+
+---
 
--   **/report** with dynamic **types/categories** (fully configurable)
+## ✨ Features
 
-    -   player/* types accept a <target>; other types are reason-only (bug reports for example)
+- `/report` with dynamic types/categories (fully configurable)
+- Context-aware tab-completion (type → category → target → reason)
+- Duplicate stacking with a configurable time window
+- In-chat and HTML chat capture
+- Chat triage UI with hover tooltips and quick actions
+- Inline or web-based chat log viewer
+- Closed report browser with reopen support
+- Optional built-in HTTP server for HTML exports
+- Optional Discord webhook notifications
+- Persistent YAML-based storage (`plugins/ReportSystem/reports/<id>.yml`)
+- Configurable multi-factor report priority system (scaffolding)
 
--   **Duplicate stacking** (same target/type/category) with a configurable time window
+---
 
--   **Chat capture**
+## 🧰 Requirements
 
-    -   Tracks targets mentioned in **open** reports
+- **Velocity**: 3.x
+- **Java**: 17+
+- **Permissions Plugin**: LuckPerms or equivalent (Velocity-compatible)
 
-    -   On report creation, pulls a **rolling buffer of recent lines** (e.g., last 90s) so earlier context isn't lost
+---
 
-    -   View chat logs as **HTML** (web server enabled) or **inline with pagination** (web server disabled)
+## 📦 Installation
 
--   **Staff UI (/reports)**
+1. Download the plugin `.jar`.
+2. Drop it into the `plugins/` folder of your Velocity proxy.
+3. Start the proxy once to generate `plugins/ReportSystem/config.yml`.
+4. Edit the config to your liking.
+5. Reload with `/reports reload` or restart the proxy.
 
-    -   Sorting by priority: **stack count** desc, then tie-break by time
+---
 
-    -   Rich list line: (#ID) (Type / Category) Target [Assigned] [Server]
+## 🧑‍💻 Commands
 
-        with **hover tooltips** for Target/Assigned/Server
+### Player / Staff
 
-    -   Quick claim/assign actions, search, paging
+\`\`\`
+/report <type> <category> [<target>] <reason...>
+\`\`\`
 
-    -   **Jump to server** button (only shown if the server exists)
+- **Target required** for `player/*` types.
+- **No target** needed for types like `server/crash`.
 
--   **Closed report browser (/reporthistory)**
+#### Tab-Completion
 
-    -   Same look/feel as /reports, with **Expand** + **Reopen** actions
+- **Position 1**: Type IDs (from `report-types`)
+- **Position 2**: Category IDs (based on type)
+- **Position 3**: Online player names (if applicable)
+- **Position 4+**: Placeholder for reason (`<reason...>`)
 
--   **Web viewer** (optional)
+> Cooldown applies to non-staff. Bypassed with permission.
 
-    -   Tiny HTTP server to serve **exported HTML chat logs**
+---
 
-    -   Lightweight auth with one-time codes (/reports auth) and cookie sessions
+### Staff Triage
 
--   **Discord webhook** integration (optional)
+\`\`\`
+/reports
+\`\`\`
 
--   **Persistent storage**
+Open the live report triage interface, sorted by:
+- Stack count (desc)
+- Then time (newest)
 
-    Each report is a readable YAML file under plugins/ReportSystem/reports/<id>.yml.
+#### Subcommands
 
-> **Note on advanced priority:** The default open-list sort is *count desc, then time*. A richer, multi-factor priority section already exists in config and can be evolved/enabled later.
-
-* * * * *
-
-**🧰 Requirements**
--------------------
-
--   **Velocity** 3.x
-
--   **Java 17+**
-
--   Permissions system compatible with Velocity (LuckPerms etc.)
-
-* * * * *
-
-**📦 Installation**
--------------------
-
-1.  Drop the plugin jar into your Velocity plugins/ folder.
-
-2.  Start the proxy once to generate plugins/ReportSystem/config.yml.
-
-3.  Edit the config (see **Configuration** below).
-
-4.  /reports reload (requires admin permission) or restart the proxy.
-
-* * * * *
-
-**🧑‍💻 Commands**
-------------------
-
-### **Player / Staff**
-
-#### **/report <type> <category> [<target>] <reason...>**
-
--   For player/* types, you **must** include <target>.
-
--   Non-player types (e.g., server/crash) **do not** take a target; everything after category is the reason.
-
--   **Tab-completion**:
-
-    -   Position 1: type ids (from report-types)
-
-    -   Position 2: category ids (for the chosen type)
-
-    -   If player type: suggests **online player names** for <target>
-
-    -   At the reason position, suggests **<reason...>** placeholder
-
--   **Cooldown** applies to non-staff (configurable).
-
-### **Staff**
-
-#### **/reports**
-
-Opens the open-reports list, sorted by priority.
-
-**Subcommands:**
-
--   /reports page <n> --- paginate the list
-
--   /reports <type> [category] --- quick filter by type/category
-
--   /reports view <id> --- expanded view with actions
-
--   /reports claim [<id>] --- claim the highest-priority open report, or a specific id
-
--   /reports claimed --- list reports you've claimed
-
--   /reports close <id> --- close a report
-
--   /reports chat <id> [page] --- view chat logs
-
-    -   If web server **enabled** → exports/links HTML, **no inline chat** is sent
-
-    -   If web server **disabled** → shows inline chat lines with **pagination**
-
-        ([page] is optional; page size = preview-lines)
-
--   /reports assign <id> <staff> --- assign someone
-
--   /reports unassign <id> --- clear assignee
-
--   /reports assigntome <id> --- quick assign to self
-
--   /reports unassignme <id> --- quick unassign self
-
--   /reports search <query> [open|closed|all] --- lightweight search
-
--   /reports reload --- reload config (admin)
-
--   /reports auth --- issue one-time code & login link (player)
-
--   /reports logoutall --- revoke web sessions (admin, player context)
-
-#### **/reporthistory**
-
-Browse **closed** reports.
-
-**Subcommands:**
-
--   /reporthistory page <n>
-
--   /reporthistory view <id> --- expanded closed report view
-
--   /reporthistory reopen <id> --- reopens a closed report
-
-* * * * *
-
-🖱️ In-Chat UI & Behavior
--------------------------
-
-### Open list line 
-
-`#123 (Player / Chat) Notch [ModJane] [lobby-1]`
-
--   **Target** is shown **without a label** and has a hover tooltip:\
-
--   **Assigned** is shown in brackets with a hover tooltip:\
-
--   **Server** is shown in brackets with a hover tooltip:\
-
-### Expanded view
-
-Shows details (reporter, target, time, count, reason, status, assignee, server).\
-Includes action buttons:
-
--   **Close**
-
--   **Chat Logs** (link or inline/paginated, depending on web server setting)
-
--   **Jump to server** (`messages.jump-command-template`, e.g. `/server %server%`)\
-    Only shown if the proxy has a server with that name.
-
-### Server detection (for list + expanded view)
-
-1.  The **target's current server** (if target is online)
-
-2.  The report's **sourceServer** (where it was filed from), if present
-
-3.  The **newest chat line's** server
-
-4.  Fallback: `UNKNOWN`
-
-* * * * *
-
-💬 Chat Capture
----------------
-
--   **Live capture** for any player who is the target of an **open** report.
-
--   **Rolling buffer**: when a report is created, the last chunk of the target's recent chat (e.g., **last 90 seconds**) is attached so context isn't lost if staff file the report a bit later.
-
--   **/reports chat <id>**
-
-    -   **Web server enabled** → exports HTML and shows a **browser link** (no local paths)
-
-    -   **Web server disabled** → shows chat in Minecraft with **pagination**
-
-* * * * *
-
-🔐 Permissions
---------------
+\`\`\`
+/reports page <n>
+/reports <type> [category]
+/reports view <id>
+/reports claim [<id>]
+/reports claimed
+/reports close <id>
+/reports chat <id> [page]
+/reports assign <id> <staff>
+/reports unassign <id>
+/reports assigntome <id>
+/reports unassignme <id>
+/reports search <query> [open|closed|all]
+/reports reload
+/reports auth
+/reports logoutall
+/reporthistory
+/reporthistory page <n>
+/reporthistory view <id>
+/reporthistory reopen <id>
+\`\`\`
+
+---
+
+## 🖱️ In-Chat UI
+
+Example Line:
+\`\`\`
+#123 (Player / Chat) Notch [ModJane] [lobby-1]
+\`\`\`
+
+### Hover Tooltips
+
+- **Target**: `"Target: %name%"`
+- **Assigned**: `"Assigned: %name%"`
+- **Server**: `"Server: %name%"`
+
+### Expand Button
+
+- Globally configurable: `messages.label-expand` (e.g., `"^"`)
+- Hover: `messages.tip-expand: "Click to expand"`
+
+Used across:
+- New report notifications
+- `/reports`, `/reporthistory`, `/reports claimed`, search results, expanded views
+
+---
+
+## 💬 Chat Capture
+
+- **Live** capture of all chat for reported players while reports are open
+- On creation, captures a rolling buffer (e.g., last 90s)
+- Displayed:
+  - As **HTML link** if web server enabled
+  - **Inline with pagination** if not
+
+\`\`\`
+/reports chat <id> [page]
+\`\`\`
+
+Pagination size: `preview-lines`
+
+---
+
+## 🔐 Permissions
 
 | Permission | Purpose |
-| --- | --- |
-| `reportsystem.reports` | Staff access to `/reports` suite, bypass `/report` cooldown, web auth (if `auth.require-permission` true) |
-| `reportsystem.notify` | Receive in-game notifications for new reports |
-| `reportsystem.forceclaim` | Override an existing claim when claiming/assigning |
-| `reportsystem.admin` | Admin actions: `/reports reload`, `/reports logoutall`, and force-claim fallback |
+|-----------|---------|
+| \`reportsystem.reports\` | Staff access to \`/reports\`, bypass \`/report\` cooldown, use web auth |
+| \`reportsystem.notify\` | Receive notifications for new reports |
+| \`reportsystem.forceclaim\` | Override claim assignments |
+| \`reportsystem.admin\` | Admin commands like \`/reports reload\`, \`/reports logoutall\` |
 
-> You'll usually grant **`reportsystem.reports`** to moderators, **`reportsystem.admin`** to administrators, and **`reportsystem.notify`** to anyone who should see alerts.
+---
 
-* * * * *
+## ⚙️ Configuration
 
+The full default config is well-commented and included in the plugin folder. Highlights:
 
-🔎 How stacking works
----------------------
+\`\`\`yaml
+stack-window-seconds: 600
+export-html-chatlog: true
+report-cooldown-seconds: 60
+preview-lines: 10
+http-server:
+  enabled: false
+  port: 8085
+auth:
+  enabled: false
+discord:
+  enabled: false
+priority:
+  enabled: true
+  use-count: true
+  use-severity: true
+  sla-minutes:
+    "player/cheat": 5
+\`\`\`
 
--   When a new report matches an **open** report by `(reported + typeId + categoryId)` and is within `stack-window-seconds`, we **increment `count`** and **append the new reason** (`prev | new`).
+> See full \`config.yml\` for more.
 
--   Outside the window, a **new report** is created.
+---
 
-* * * * *
+## 🔎 Stacking Logic
 
-🌐 Web Viewer & Auth
---------------------
+Reports are stacked if:
 
--   If `http-server.enabled: true`:
+- **Same target**, **type**, and **category**
+- Within \`stack-window-seconds\` (default: 600s)
 
-    -   `/reports chat <id>` **exports** an HTML page under `html-export-dir` and shows a **clickable link**.
+Result:
+- Count is incremented
+- New reason is appended (\`prev | new\`)
 
-    -   No local file paths are printed in chat.
+---
 
--   Public link base is chosen from:
+## 🌐 Web Viewer & Auth
 
-    1.  `public-base-url` (preferred)
+If enabled:
+- \`/reports chat <id>\` exports to HTML under \`html-logs/\`
+- Public URL generated using \`public-base-url\` or fallback
+- **No local paths** shown in chat
 
-    2.  `http-server.external-base-url`
+### Auth System
 
--   **Auth** (if enabled):
+- One-time codes via \`/reports auth\`
+- Session stored in cookies
+- TTL controlled via config
+- Requires \`reportsystem.reports\` (if \`auth.require-permission: true\`)
 
-    -   `/reports auth` (players) issues a **one-time code** and login link.
+---
 
-    -   Sessions are cookie-based with a sliding TTL.
+## 🔔 Notifications
 
-    -   `auth.require-permission: true` requires `reportsystem.reports` to use `/reports auth`.
+When a report is filed:
+- Staff with \`reportsystem.notify\` get an in-game summary with an **expand button**
+- Optional Discord webhook (\`discord.webhook-url\`) for external alerts
 
-* * * * *
+---
 
-🔔 Notifications
-----------------
+## 🤝 Contributors
 
--   When a report is filed, staff with `reportsystem.notify` receive a summary with an **Expand** button.
+- Project maintainers: _[Add your names here if public]_
+- Contributions welcome via PR or issue reports.
 
--   Optional: you can wire a Discord webhook.
+---
 
-* * * * *
+## 📄 License
 
-🗄️ Storage format
-------------------
-
-Each report is a YAML file containing all structured fields (id, reporter, reported, type/category, reason, count, timestamps, status, assignee, optional `sourceServer`, and optional `chat` entries with time/player/server/message).
-
-Example path:
-
-`plugins/ReportSystem/reports/123.yml`
-
-* * * * *
+_This plugin is proprietary / open-source — **please clarify license if public**._
