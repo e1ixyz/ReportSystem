@@ -14,9 +14,7 @@ It captures context (chat), stacks duplicate reports, supports rich in-chat UI w
 
 -   **/report** with dynamic **types/categories** (fully configurable)
 
-    -   player/* types accept a <target>; other types are reason-only
-
-    -   Tab-completion guides the flow and shows a **<reason...> placeholder**
+    -   player/* types accept a <target>; other types are reason-only (bug reports for example)
 
 -   **Duplicate stacking** (same target/type/category) with a configurable time window
 
@@ -28,15 +26,13 @@ It captures context (chat), stacks duplicate reports, supports rich in-chat UI w
 
     -   View chat logs as **HTML** (web server enabled) or **inline with pagination** (web server disabled)
 
--   **Staff triage UI (/reports)**
+-   **Staff UI (/reports)**
 
     -   Sorting by priority: **stack count** desc, then tie-break by time
 
     -   Rich list line: (#ID) (Type / Category) Target [Assigned] [Server]
 
         with **hover tooltips** for Target/Assigned/Server
-
-    -   Fully configurable **Expand** button label (messages.label-expand, e.g. "^") used **everywhere**
 
     -   Quick claim/assign actions, search, paging
 
@@ -109,7 +105,7 @@ It captures context (chat), stacks duplicate reports, supports rich in-chat UI w
 
 -   **Cooldown** applies to non-staff (configurable).
 
-### **Staff Triage**
+### **Staff**
 
 #### **/reports**
 
@@ -170,31 +166,15 @@ Browse **closed** reports.
 🖱️ In-Chat UI & Behavior
 -------------------------
 
-### Open list line (consistent everywhere)
+### Open list line 
 
 `#123 (Player / Chat) Notch [ModJane] [lobby-1]`
 
 -   **Target** is shown **without a label** and has a hover tooltip:\
-    `messages.tip-target: "Target: %name%"`
 
 -   **Assigned** is shown in brackets with a hover tooltip:\
-    `messages.tip-assigned: "Assigned: %name%"`
 
 -   **Server** is shown in brackets with a hover tooltip:\
-    `messages.tip-server: "Server: %name%"`
-
--   **Expand** button uses the **global label**: `messages.label-expand` (e.g., `"^"`),\
-    with hover `messages.tip-expand`. This applies to all expand buttons:
-
-    -   New-report notifications
-
-    -   `/reports` list
-
-    -   `/reports search` results
-
-    -   `/reports claimed`
-
-    -   `/reporthistory` list
 
 ### Expanded view
 
@@ -233,10 +213,6 @@ Includes action buttons:
 
     -   **Web server disabled** → shows chat in Minecraft with **pagination**
 
-        -   Page size = `preview-lines`
-
-        -   Each line is truncated to `preview-line-max-chars`
-
 * * * * *
 
 🔐 Permissions
@@ -253,217 +229,6 @@ Includes action buttons:
 
 * * * * *
 
-⚙️ Configuration (default)
---------------------------
-
-Below is the current default `config.yml` (GitHub-friendly YAML).\
-Use this as a reference; your generated file will include the same keys and comments.
-
-`# === ReportSystem -- Default Configuration ===
-
-# ------------------------------------------------------------------------------------
-# CORE
-# ------------------------------------------------------------------------------------
-allow-self-report: true                 # Allow players to report themselves?
-stack-window-seconds: 600               # Seconds to merge ("stack") identical reports (same target/type/category)
-export-html-chatlog: true               # If true, chat logs export to HTML (used when web viewer is enabled)
-html-export-dir: "html-logs"            # Folder under the plugin data directory for HTML exports
-reports-per-page: 10
-
-# Permissions
-staff-permission: "reportsystem.reports"         # Staff can use /reports, bypass cooldown, view protected web pages, etc.
-notify-permission: "reportsystem.notify"         # Staff who should receive ingame notifications about new reports
-force-claim-permission: "reportsystem.forceclaim"  # Staff who may override someone else's claim
-admin-permission: "reportsystem.admin"           # Admin-only actions: /reports reload, /reports logoutall, force-claim override fallback
-
-# ------------------------------------------------------------------------------------
-# REPORT COOLDOWN
-# ------------------------------------------------------------------------------------
-# Players must wait this long between /report commands.
-# Users with staff-permission bypass this cooldown.
-report-cooldown-seconds: 60
-
-# ------------------------------------------------------------------------------------
-# INLINE PREVIEW (safety for ingame chat previews)
-# ------------------------------------------------------------------------------------
-preview-lines: 10
-preview-line-max-chars: 200
-
-# ------------------------------------------------------------------------------------
-# PUBLIC URLS FOR LINKS SHOWN IN CHAT
-# ------------------------------------------------------------------------------------
-# Leave blank by default. If you have a public domain later,
-# set EITHER public-base-url OR http-server.external-base-url (prefer public-base-url).
-public-base-url: ""                      # e.g. "https://reports.example.com"
-
-http-server:
-  enabled: false                         # Built-in tiny web server to serve html-logs/
-  external-base-url: ""                  # e.g. "https://reports.example.com" (links when public-base-url is blank)
-  bind: "0.0.0.0"
-  port: 8085
-  base-path: "/"
-
-# ------------------------------------------------------------------------------------
-# LIGHTWEIGHT WEB AUTH FOR HTTP SERVER
-# ------------------------------------------------------------------------------------
-auth:
-  enabled: false
-  cookie-name: "rsid"
-  session-ttl-minutes: 1440              # Sliding session TTL (minutes)
-  code-ttl-seconds: 120                  # One-time code lifetime (seconds) for /reports auth
-  code-length: 6
-  secret: "change-me"                    # Change in production; used for signing session ids
-  open-paths:                            # Paths accessible without auth (when auth is enabled)
-    - "/login"
-    - "/favicon.ico"
-  require-permission: true               # Require staff-permission to run /reports auth and receive a code
-
-# ------------------------------------------------------------------------------------
-# DISCORD WEBHOOK (optional)
-# ------------------------------------------------------------------------------------
-discord:
-  enabled: false
-  webhook-url: ""
-  username: "ReportSystem"
-  avatar-url: ""
-  timeout-ms: 4000
-
-# ------------------------------------------------------------------------------------
-# MULTI-FACTOR PRIORITY SCORING (scaffolding)
-# ------------------------------------------------------------------------------------
-# NOTE: Current default open-list sort is: count desc, then time (newest).
-# This block defines weights & targets for a future richer scorer.
-priority:
-  enabled: true
-
-  # Enable/Disable individual factors
-  use-count: true
-  use-recency: true
-  use-severity: true
-  use-evidence: true
-  use-unassigned: true
-  use-aging: true
-  use-sla-breach: true
-
-  # Weights (relative importance)
-  w-count: 2.0
-  w-recency: 2.0
-  w-severity: 3.0
-  w-evidence: 1.0
-  w-unassigned: 0.5
-  w-aging: 1.0
-  w-sla-breach: 4.0
-
-  # Shaping for recency
-  tau-ms: 900000         # 15 minutes
-
-  # Severity baseline by type/category
-  severity-by-key:
-    "player/cheat": 3.0
-    "server/crash": 2.5
-    "player/chat": 1.0
-    "player/ad": 1.5
-
-  # SLA targets (minutes)
-  sla-minutes:
-    "player/cheat": 5
-    "server/crash": 2
-    "player/chat": 15
-
-# ------------------------------------------------------------------------------------
-# MESSAGES / LOCALIZATION
-# ------------------------------------------------------------------------------------
-messages:
-  prefix: "<gray>[<blue>Reports</blue>]</gray> "
-  no-permission: "<red>You don't have permission.</red>"
-
-  # /report UX
-  usage-report: "Usage: /report <type> <category> [<target>] <reason...>"
-  invalid-type: "Unknown type or category: %type%/%cat%"
-  self-report-denied: "You cannot report yourself."
-  report-stacked: "Report stacked into #%id% (now x%count%)"
-  report-filed: "Report filed! (ID #%id%)"
-
-  # Common
-  not-found: "No such report: #%id%"
-  closed: "Closed report #%id%"
-  assigned: "Assigned report #%id% to %assignee%"
-  unassigned: "Unassigned report #%id%"
-  already-unassigned: "Report #%id% is not assigned."
-  search-empty: "No matching reports."
-  search-header: "Search: %query% (%scope%)"
-  page-empty: "No open reports."
-  page-header: "Reports Page %page%/%pages%"
-  page-header-filtered: "Reports (%type%/%cat%) Page %page%/%pages%"
-  reloaded: "ReportSystem reloaded."
-  chatlog-none: "No chat messages were captured for this report."
-
-  # Buttons / tooltips
-  label-expand: "^"                        # unified EXPAND label --- used everywhere
-  tip-expand: "Click to expand"
-  tip-open-browser: "Open in browser"
-  tip-open-login: "Open login page"
-  tip-prev: "Previous page"
-  tip-next: "Next page"
-  tip-reload: "Reload reports"
-  tip-close: "Close this report"
-  tip-chat: "View chat logs"
-  tip-jump-server: "Connect to this server"
-  tip-assign-me: "Assign to me"
-  tip-unassign: "Unassign"
-  tip-force-claim: "Force-claim"
-  tip-target: "Target: %name%"
-  tip-assigned: "Assigned: %name%"
-  tip-server: "Server: %name%"
-
-  # Expanded view
-  expanded-header: "Report #%id% (%type% / %category%)"
-  expanded-server-line: "<gray>Server:</gray> <white>%server%</white>"
-  expanded-lines:
-    - "<gray>Reported:</gray> <white>%target%</white> <gray>by</gray> <white>%player%</white>"
-    - "<gray>When:</gray> <white>%timestamp%</white>"
-    - "<gray>Count:</gray> <white>%count%</white>"
-    - "<gray>Reason(s):</gray> <white>%reasons%</white>"
-    - "<gray>Status:</gray> <white>%status%</white>"
-    - "<gray>Assignee:</gray> <white>%assignee%</white>"
-  open-chatlog-label: "Open chat log"
-  auth-code-ttl-s: "120"
-  jump-command-template: "/server %server%"
-
-# ------------------------------------------------------------------------------------
-# DYNAMIC REPORT TYPES
-# ------------------------------------------------------------------------------------
-report-types:
-  player:
-    display: "Player"
-    categories:
-      chat: "Chat"
-      cheat: "Cheating"
-      ad: "Advertising"
-      grief: "Griefing"
-  server:
-    display: "Server"
-    categories:
-      crash: "Crash"
-      lag: "Lag"
-      dupe: "Duplication Bug"
-
-# ------------------------------------------------------------------------------------
-# STACK BADGE THRESHOLDS & COLORS (ui only)
-# ------------------------------------------------------------------------------------
-stack-thresholds:
-  yellow: 3
-  gold: 5
-  red: 10
-  dark-red: 15
-
-stack-colors:
-  yellow: "<yellow>"
-  gold: "<gold>"
-  red: "<red>"
-  dark-red: "<dark_red>"`
-
-* * * * *
 
 🔎 How stacking works
 ---------------------
@@ -502,9 +267,9 @@ stack-colors:
 🔔 Notifications
 ----------------
 
--   When a report is filed, staff with `reportsystem.notify` receive a summary with an **Expand** button (label from `messages.label-expand`).
+-   When a report is filed, staff with `reportsystem.notify` receive a summary with an **Expand** button.
 
--   Optional: you can wire a Discord webhook; the plugin also supports a generic notifier via reflection (e.g., `notifyNew`, `notifyAssigned`, `notifyUnassigned`, `notifyClosed`, `notifyReopened`) if you add an integration module.
+-   Optional: you can wire a Discord webhook.
 
 * * * * *
 
@@ -518,21 +283,3 @@ Example path:
 `plugins/ReportSystem/reports/123.yml`
 
 * * * * *
-
-🧪 Tips & Troubleshooting
--------------------------
-
--   **Jump to server points at a username?**\
-    Ensure the server inference is correct (see **Server detection**) and that a server with that name exists. The **Jump** button is shown **only** if the proxy has a server matching the inferred name.
-
--   **Chat logs missing right after filing?**\
-    The rolling buffer should capture recent lines; verify chat capture is active and the target is being watched (open report), and that your buffer window is sufficient.
-
--   **Public links aren't clickable?**\
-    Set either `public-base-url` **or** `http-server.external-base-url`. If both are blank, web export can still occur but no public link will be emitted.
-
--   **Self-reporting blocked?**\
-    Toggle `allow-self-report` as needed.
-
--   **Inline chat is truncated or too long?**\
-    Adjust `preview-lines` (page size) and `preview-line-max-chars`.
