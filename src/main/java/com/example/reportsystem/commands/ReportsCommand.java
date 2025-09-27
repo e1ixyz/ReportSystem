@@ -379,24 +379,33 @@ public class ReportsCommand implements SimpleCommand {
             }
             case "view", "close", "chat" -> {
                 var ids = idSuggestions(false);
-                if (a.length == 1) return ids;
+                if (a.length <= 1) return ids;
+                if (a.length >= 2) {
+                    List<String> filtered = filter(ids, a[1]);
+                    if (a[0].equalsIgnoreCase("chat") && a.length == 3) {
+                        return filter(List.of("<page>", "1", "2", "3"), a[2]);
+                    }
+                    return filtered;
+                }
             }
             case "unassign" -> {
                 var ids = idSuggestions(true);
-                if (a.length == 1) return ids;
+                if (a.length <= 1) return ids;
+                if (a.length >= 2) return filter(ids, a[1]);
             }
             case "assign" -> {
-                if (a.length == 1) {
-                    return mgr.getOpenReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
-                } else if (a.length == 2) {
-                    return mgr.getOpenReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
-                } else if (a.length == 3) {
-                    return plugin.proxy().getAllPlayers().stream().map(Player::getUsername).toList();
+                var ids = idSuggestions(false);
+                if (a.length <= 1) return ids;
+                if (a.length == 2) return filter(ids, a[1]);
+                if (a.length == 3) {
+                    var names = plugin.proxy().getAllPlayers().stream().map(Player::getUsername).toList();
+                    return filter(List.copyOf(names), a[2]);
                 }
             }
             case "debug" -> {
-                var ids = mgr.getOpenReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
-                if (a.length == 1) return ids;
+                var ids = idSuggestions(false);
+                if (a.length <= 1) return ids;
+                if (a.length >= 2) return filter(ids, a[1]);
             }
             case "search" -> {
                 if (a.length == 1) {
@@ -410,11 +419,21 @@ public class ReportsCommand implements SimpleCommand {
                 }
             }
             case "claim" -> {
-                if (a.length == 1) {
-                    return idSuggestions(false);
-                }
+                var ids = idSuggestions(false);
+                if (a.length <= 1) return ids;
+                if (a.length >= 2) return filter(ids, a[1]);
             }
             case "auth", "logoutall", "claimed" -> { return List.of(); }
+            case "assigntome" -> {
+                var ids = idSuggestions(false);
+                if (a.length <= 1) return ids;
+                if (a.length >= 2) return filter(ids, a[1]);
+            }
+            case "unassignme" -> {
+                var ids = idSuggestions(true);
+                if (a.length <= 1) return ids;
+                if (a.length >= 2) return filter(ids, a[1]);
+            }
             default -> {
                 // fall back to type/category suggestions
                 if (a.length == 1) return mgr.typeIds();

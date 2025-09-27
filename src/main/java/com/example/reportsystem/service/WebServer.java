@@ -10,6 +10,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
@@ -56,22 +57,24 @@ public class WebServer {
 
     private void handleLogin(HttpExchange ex) throws IOException {
         try {
+            String nextParam = sanitizeNext(queryParam(ex, "next"));
             if ("GET".equalsIgnoreCase(ex.getRequestMethod())) {
-                respondHtml(ex, 200, loginForm(null));
+                respondHtml(ex, 200, loginForm(null, nextParam));
                 return;
             }
             if ("POST".equalsIgnoreCase(ex.getRequestMethod())) {
                 Map<String, String> form = parseForm(ex);
                 String code = form.getOrDefault("code", "").trim();
                 String who  = form.getOrDefault("name", "").trim();
+                String next = sanitizeNext(form.get("next"));
                 String sid = auth.redeemCode(code, who);
                 if (sid == null || !auth.looksSigned(sid)) {
-                    respondHtml(ex, 401, loginForm("Invalid or expired code."));
+                    respondHtml(ex, 401, loginForm("Invalid or expired code.", next));
                     return;
                 }
                 Headers h = ex.getResponseHeaders();
                 h.add("Set-Cookie", cookie(cfg.auth.cookieName, sid, cfg.auth.sessionTtlMinutes));
-                h.add("Location", "/");
+                h.add("Location", next);
                 ex.sendResponseHeaders(302, -1);
                 ex.close();
                 return;
@@ -102,7 +105,16 @@ public class WebServer {
 
         if (cfg.auth.enabled && session == null) {
             Headers h = ex.getResponseHeaders();
-            h.add("Location", "/login");
+            String target = ex.getRequestURI().getRawPath();
+            String rawQuery = ex.getRequestURI().getRawQuery();
+            if (rawQuery != null && !rawQuery.isBlank()) {
+                target += "?" + rawQuery;
+            }
+            String loginLocation = "/login";
+            if (target != null && !target.isBlank()) {
+                loginLocation += "?next=" + URLEncoder.encode(target, StandardCharsets.UTF_8);
+            }
+            h.add("Location", loginLocation);
             ex.sendResponseHeaders(302, -1);
             ex.close();
             return;
@@ -158,15 +170,46 @@ public class WebServer {
 
     private Map<String, String> parseForm(HttpExchange ex) throws IOException {
         String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        return parseKvString(body);
+    }
+
+    private Map<String, String> parseQuery(String rawQuery) {
+        return parseKvString(rawQuery == null ? "" : rawQuery);
+    }
+
+    private Map<String, String> parseKvString(String kvString) {
         Map<String, String> out = new HashMap<>();
-        for (String kv : body.split("&")) {
+        if (kvString == null || kvString.isBlank()) return out;
+        for (String kv : kvString.split("&")) {
+            if (kv.isEmpty()) continue;
             int i = kv.indexOf('=');
-            if (i <= 0) continue;
+            if (i < 0) {
+                String k = URLDecoder.decode(kv, StandardCharsets.UTF_8);
+                out.put(k, "");
+                continue;
+            }
             String k = URLDecoder.decode(kv.substring(0, i), StandardCharsets.UTF_8);
             String v = URLDecoder.decode(kv.substring(i + 1), StandardCharsets.UTF_8);
             out.put(k, v);
         }
         return out;
+    }
+
+    private String queryParam(HttpExchange ex, String name) {
+        return parseQuery(ex.getRequestURI().getRawQuery()).get(name);
+    }
+
+    private String sanitizeNext(String next) {
+        if (next == null || next.isBlank()) {
+            return "/";
+        }
+        if (!next.startsWith("/")) {
+            return "/";
+        }
+        if (next.startsWith("//")) { // prevent protocol-relative redirects
+            return "/";
+        }
+        return next;
     }
 
     private String readCookie(HttpExchange ex, String name) {
@@ -201,7 +244,7 @@ public class WebServer {
         try (OutputStream os = ex.getResponseBody()) { os.write(bytes); }
     }
 
-    private String loginForm(String error) {
+    private String loginForm(String error, String next) {
         String err = (error == null) ? "" : "<div style='color:#c33;margin-bottom:10px;'>" + escape(error) + "</div>";
         // Note: use %% to escape % in String.format-like .formatted(). Here we avoid braces conversion issues.
         return "<!doctype html>\n" +
@@ -224,6 +267,7 @@ public class WebServer {
                 "    <input id=\"name\" name=\"name\" placeholder=\"Your IGN\">\n" +
                 "    <label for=\"code\">One-time Code</label>\n" +
                 "    <input id=\"code\" name=\"code\" placeholder=\"e.g. 123456\" autofocus>\n" +
+                "    <input type=\"hidden\" name=\"next\" value=\"" + escape(next) + "\">\n" +
                 "    <button type=\"submit\">Sign in</button>\n" +
                 "  </form>\n" +
                 "  <p style=\"margin-top:12px;\"><a href=\"/logout\">Logout</a></p>\n" +

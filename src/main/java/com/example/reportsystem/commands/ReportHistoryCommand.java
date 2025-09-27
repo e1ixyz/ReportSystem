@@ -12,6 +12,7 @@ import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import net.kyori.adventure.text.Component;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -146,8 +147,14 @@ public class ReportHistoryCommand implements SimpleCommand {
                 if (a.length == 1) return List.of("1", "2", "3");
             }
             case "view", "chat", "reopen" -> {
-                var ids = mgr.getClosedReportsDescending().stream().map(r -> String.valueOf(r.id)).toList();
-                if (a.length == 1) return ids;
+                var ids = historyIdSuggestions();
+                if (a.length <= 1) return ids;
+                if (a.length >= 2) {
+                    if (a[0].equalsIgnoreCase("chat") && a.length == 3) {
+                        return filter(List.of("<page>", "1", "2", "3"), a[2]);
+                    }
+                    return filter(ids, a[1]);
+                }
             }
             default -> { /* no-op */ }
         }
@@ -350,5 +357,21 @@ public class ReportHistoryCommand implements SimpleCommand {
             );
             src.sendMessage(nav);
         }
+    }
+
+    private List<String> historyIdSuggestions() {
+        List<String> ids = new ArrayList<>();
+        ids.add("<id>");
+        mgr.getClosedReportsDescending().stream()
+                .map(r -> String.valueOf(r.id))
+                .forEach(ids::add);
+        return ids;
+    }
+
+    private static List<String> filter(List<String> options, String prefix) {
+        String p = prefix == null ? "" : prefix.toLowerCase(Locale.ROOT);
+        return options.stream()
+                .filter(opt -> opt.toLowerCase(Locale.ROOT).startsWith(p))
+                .toList();
     }
 }
