@@ -1,7 +1,7 @@
 **ReportSystem (Velocity)**
 ===========================
 
-A modern, staff-friendly report & triage system for Velocity proxies.
+A modern, staff-friendly report system for Velocity proxies.
 
 It captures context (chat), stacks duplicate reports, supports rich in-chat UI with hover tooltips, and can export HTML chat logs via a tiny built-in web server.
 
