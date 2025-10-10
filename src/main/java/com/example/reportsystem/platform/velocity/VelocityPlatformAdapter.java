@@ -32,7 +32,7 @@ public final class VelocityPlatformAdapter implements PlatformAdapter {
     private final EventManager eventManager;
 
     private final Map<String, RegisteredCommand> commands = new ConcurrentHashMap<>();
-    private final Map<ChatListener, Object> chatListeners = new ConcurrentHashMap<>();
+    private final Map<ChatListener, VelocityChatBridge> chatListeners = new ConcurrentHashMap<>();
 
     public VelocityPlatformAdapter(Object pluginInstance, ProxyServer proxy, Logger logger, Path dataDirectory) {
         this.pluginInstance = pluginInstance;
@@ -87,9 +87,9 @@ public final class VelocityPlatformAdapter implements PlatformAdapter {
 
     @Override
     public void unregisterChatListener(ChatListener listener) {
-        Object bridge = chatListeners.remove(listener);
+        VelocityChatBridge bridge = chatListeners.remove(listener);
         if (bridge != null) {
-            eventManager.unregisterListener(bridge);
+            eventManager.unregisterListener(pluginInstance, bridge);
         }
     }
 
