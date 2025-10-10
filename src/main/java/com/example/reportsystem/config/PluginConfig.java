@@ -50,6 +50,9 @@ public class PluginConfig {
     public String colorRed = "<red>";
     public String colorDarkRed = "<dark_red>";
 
+    // Storage backend selection
+    public StorageConfig storage = new StorageConfig();
+
     // Optional embedded HTTP server
     public HttpServerConfig httpServer = new HttpServerConfig();
 
@@ -89,6 +92,27 @@ public class PluginConfig {
         public String username = "ReportSystem";
         public String avatarUrl = "";
         public int timeoutMs = 4000;
+    }
+
+    public static class StorageConfig {
+        public enum Type { YAML, MYSQL }
+
+        public Type type = Type.YAML;
+        public MySqlConfig mysql = new MySqlConfig();
+    }
+
+    public static class MySqlConfig {
+        public String host = "127.0.0.1";
+        public int port = 3306;
+        public String database = "reportsystem";
+        public String username = "root";
+        public String password = "password";
+        public boolean useSsl = true;
+        public boolean allowPublicKeyRetrieval = false;
+        public String connectionOptions = "characterEncoding=UTF-8&useUnicode=true";
+        public String tableReports = "reports";
+        public String tableChat = "report_chat";
+        public int connectionPoolSize = 8;
     }
 
     public static class HttpServerConfig {

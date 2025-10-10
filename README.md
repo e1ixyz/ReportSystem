@@ -1,14 +1,15 @@
-# ReportSystem (Velocity)
+# ReportSystem (Velocity & Paper)
 
-ReportSystem is a full-featured player reporting and moderation workflow plugin for [Velocity](https://velocitypowered.com) proxy networks. It streamlines how staff capture incident reports, inspect live evidence, triage and resolve cases, and optionally integrate web views or Discord notifications—all while persisting data safely on the proxy.
+ReportSystem is a full-featured player reporting and moderation workflow plugin for both [Velocity](https://velocitypowered.com) proxy networks and standalone Paper/Spigot servers. A single shaded jar autodetects the host platform at runtime, so you can reuse the exact same configuration, storage backend, and workflows everywhere. The plugin streamlines how staff capture incident reports, inspect live evidence, triage and resolve cases, and optionally integrate web views or Discord notifications—all while persisting data safely.
 
 ## Feature Highlights
 
 - **Dynamic reporting UX** – `/report <type> <category> …` supports configurable report types/categories, automatic stacking of duplicate reports, and context-aware tab completion.
+- **One jar, two platforms** – drop the same build on a Velocity proxy or a Paper/Spigot server and the plugin wires commands, chat listeners, and schedulers automatically.
 - **Live evidence capture** – chat logs are buffered for every player and appended to open reports in real time, with HTML export and web viewer support when enabled.
 - **Staff consoles** – `/reports` (open queue) and `/reporthistory` (closed queue) expose pagination, filters, quick actions (claim, assign, close, reopen) and MiniMessage-powered UI components.
 - **Priority scoring** – a multi-factor system ranks open reports using stack count, recency decay, severity mappings, captured evidence, assignment state, aging, and SLA breaches. `/reports debug <id>` explains the exact score breakdown.
-- **Persistence & reload safety** – each report is stored atomically as YAML under the plugin data directory, allowing restarts without data loss. `/reports reload` hot-reloads config and updates command instances.
+- **Persistence & reload safety** – choose between the legacy YAML backend or a MySQL database for storing reports. `/reports reload` hot-reloads config and updates command instances (storage backend changes require a restart).
 - **Notifications** – staff receive in-game alerts with hover/click actions, and optional Discord webhook delivery occurs asynchronously.
 - **Optional built-in web server** – serve HTML chat logs through a small HTTP server with cookie-based auth or via any external web stack.
 
@@ -21,8 +22,9 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
    The shaded jar is written to `target/reportsystem-<version>.jar`.
 
 2. **Install**
-   - Copy the jar into your Velocity proxy’s `plugins/` directory.
-   - Start (or restart) Velocity to let the plugin generate its data folder (`plugins/ReportSystem/`).
+   - **Velocity**: copy the jar into the proxy’s `plugins/` directory and restart the proxy.
+   - **Paper/Spigot**: copy the jar into the server’s `plugins/` directory and restart the server.
+   The plugin creates a `ReportSystem/` data folder next to `config.yml`, storage files, and HTML exports.
 
 3. **Configure**
    - Edit `plugins/ReportSystem/config.yml`. The defaults in `src/main/resources/config.yml` document every setting.
@@ -37,8 +39,8 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
      ```
      Staff can generate login codes via `/reports auth` if auth is enabled.
 
-4. **Permissions** (Velocity-style strings)
-   - `reportsystem.reports` – access `/reports`, `/reporthistory`, bypass cooldown, and request auth codes.
+4. **Permissions**
+   - `reportsystem.reports` – access `/reports`, `/reporthistory`, bypass cooldown, and request auth codes (applies to Velocity permissions and Bukkit permission managers alike).
    - `reportsystem.notify` – receive in-game notifications when new reports arrive or when reloads occur.
    - `reportsystem.forceclaim` – override another staff member’s claim via `/reports claim <id>`.
    - `reportsystem.admin` – perform `/reports reload`, `/reports logoutall`, and bypass force-claim restrictions.
@@ -66,9 +68,9 @@ Run `/reports debug <id>` to view a breakdown showing each factor’s raw value,
 
 ## Data Storage
 
-- Reports live in `plugins/ReportSystem/reports/<id>.yml`.
-- HTML exports (if enabled) are written under `plugins/ReportSystem/<html-export-dir>/<id>/index.html`.
-- The plugin keeps an in-memory cache of reports and chat logs, refreshing from disk on startup and saving atomically after every change.
+- **YAML (default)** – reports are serialized to `plugins/ReportSystem/reports/<id>.yml`; HTML exports (if enabled) are written under `plugins/ReportSystem/<html-export-dir>/<id>/index.html`.
+- **MySQL** – define the connection details under the new `storage.mysql` block to persist reports and chat logs in relational tables (handy for multi-proxy clusters or external analytics).
+- Regardless of backend, the plugin keeps an in-memory cache of reports and chat logs, refreshing from storage on startup and saving after every change.
 
 ## Web & Authentication
 
@@ -84,7 +86,7 @@ Run `/reports debug <id>` to view a breakdown showing each factor’s raw value,
 - **Build** – `mvn package` (the project is a standard Maven module targeting Java 17).
 - **Testing** – No automated tests are included; run the plugin on a Velocity test network to validate changes.
 - **Code style** – MiniMessage is used for all chat output. Whenever you add new MiniMessage strings or commands, ensure tab completion mirrors the runtime arguments (see `ReportsCommand` for examples).
-- **Persistence Safety** – `ReportManager` writes changes via temporary files and atomic move operations. Avoid editing report YAML directly while the proxy is live to prevent race conditions.
+- **Persistence Safety** – the YAML backend uses atomic file writes; the MySQL backend wraps writes in transactions and batches chat updates. Avoid editing persisted data while the proxy is live to prevent race conditions.
 
 ## Contributing
 
@@ -92,4 +94,4 @@ Contributions are welcome—feel free to open merge requests that improve docume
 
 ---
 
-For questions or suggestions, open an issue on the repository or reach out to the maintainers. Happy moderating!
+For questions or suggestions, open an issue on the repository or reach out to the maintainers. Happy moderating—whether you’re on a proxy network or a standalone server!

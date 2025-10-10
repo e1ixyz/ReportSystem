@@ -52,7 +52,7 @@ public class Notifier {
         if (discord.webhookUrl == null || discord.webhookUrl.isBlank()) return;
 
         String url = discord.webhookUrl;
-        plugin.proxy().getScheduler().buildTask(plugin, () -> dispatchWebhook(discord, url, content)).schedule();
+        plugin.platform().runAsync(() -> dispatchWebhook(discord, url, content));
     }
 
     private void dispatchWebhook(PluginConfig.DiscordConfig discord, String url, String content) {

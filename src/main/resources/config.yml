@@ -1,4 +1,6 @@
 # === ReportSystem – Default Configuration ===
+#
+# This single configuration is shared between Velocity proxies and Paper/Spigot servers.
 
 # ------------------------------------------------------------------------------------
 # CORE
@@ -9,9 +11,9 @@ export-html-chatlog: true                # If true, chat logs export to HTML (us
 html-export-dir: "html-logs"             # Folder under the plugin data directory for HTML exports
 reports-per-page: 10
 
-# Permissions
+# Permissions (standard permission nodes; apply them through Velocity or Bukkit permission managers)
 staff-permission: "reportsystem.reports"          # Staff can use /reports, bypass cooldown, view protected web pages, etc.
-notify-permission: "reportsystem.notify"          # Staff who should receive ingame notifications about new reports
+notify-permission: "reportsystem.notify"          # Staff who should receive in-game notifications about new reports
 force-claim-permission: "reportsystem.forceclaim" # Staff who may override someone else’s claim
 admin-permission: "reportsystem.admin"            # Admin-only: /reports reload, /reports logoutall, force-claim override fallback
 
@@ -35,8 +37,26 @@ preview-line-max-chars: 200
 # set EITHER public-base-url OR http-server.external-base-url (prefer public-base-url).
 public-base-url: ""                      # e.g. "https://reports.example.com"
 
+# ------------------------------------------------------------------------------------
+# STORAGE BACKEND
+# ------------------------------------------------------------------------------------
+storage:
+  type: yaml                             # "yaml" (default) or "mysql"
+  mysql:
+    host: "127.0.0.1"
+    port: 3306
+    database: "reportsystem"
+    username: "root"
+    password: "password"
+    use-ssl: true
+    allow-public-key-retrieval: false     # Set true if your MySQL server needs it (e.g. local dev with caching_sha2)
+    connection-options: "characterEncoding=UTF-8&useUnicode=true"
+    table-reports: "reports"
+    table-chat: "report_chat"
+    pool-size: 8
+
 http-server:
-  enabled: false                         # Built-in tiny web server to serve html-logs/
+  enabled: false                         # Built-in tiny web server to serve html-logs/ (works on both proxy and server hosts)
   external-base-url: ""                  # e.g. "https://reports.example.com" (used for links when public-base-url is blank)
   bind: "0.0.0.0"                        # Listen address
   port: 8085
@@ -179,6 +199,8 @@ messages:
   # Chat log viewer (web and inline)
   open-chatlog-label: "Open chat log"
   auth-code-ttl-s: "120"
+  # Jump button command template.
+  # Velocity proxies default to "/server %server%"; on Paper you can swap this to any command staff use to jump (e.g. "/tp %server%").
   jump-command-template: "/server %server%"
 
 # ------------------------------------------------------------------------------------

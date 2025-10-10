@@ -3,15 +3,16 @@ package com.example.reportsystem.commands;
 import com.example.reportsystem.ReportSystem;
 import com.example.reportsystem.config.PluginConfig;
 import com.example.reportsystem.model.Report;
+import com.example.reportsystem.platform.CommandActor;
+import com.example.reportsystem.platform.CommandContext;
+import com.example.reportsystem.platform.CommandHandler;
+import com.example.reportsystem.platform.PlatformPlayer;
 import com.example.reportsystem.service.AuthService;
 import com.example.reportsystem.service.HtmlExporter;
 import com.example.reportsystem.service.ReportManager;
 import com.example.reportsystem.util.Pagination;
 import com.example.reportsystem.util.Text;
 import com.example.reportsystem.util.TimeUtil;
-import com.velocitypowered.api.command.CommandSource;
-import com.velocitypowered.api.command.SimpleCommand;
-import com.velocitypowered.api.proxy.Player;
 import net.kyori.adventure.text.Component;
 
 import java.util.ArrayList;
@@ -30,7 +31,7 @@ import java.util.Locale;
  *      * if http-server.enabled -> export & show link only
  *      * if http-server.disabled -> paginated inline chat: /reports chat <id> [page]
  */
-public class ReportsCommand implements SimpleCommand {
+public class ReportsCommand implements CommandHandler {
 
     private final ReportSystem plugin;
     private final ReportManager mgr;
@@ -49,14 +50,15 @@ public class ReportsCommand implements SimpleCommand {
     }
 
     @Override
-    public void execute(Invocation inv) {
-        CommandSource src = inv.source();
+    public void execute(CommandContext ctx) {
+        CommandActor src = ctx.actor();
         if (!src.hasPermission(config.staffPermission)) {
             Text.msg(src, config.msg("no-permission","You don't have permission."));
             return;
         }
 
-        String[] args = inv.arguments();
+        String[] args = ctx.args();
+        PlatformPlayer playerActor = src.asPlayer().orElse(null);
         if (args.length == 0) { showPage(src, 1, null, null); return; }
 
         // Allow `/reports <type> [category]` for quick filtering
@@ -96,40 +98,40 @@ public class ReportsCommand implements SimpleCommand {
             }
 
             case "claim" -> {
-                if (!(src instanceof Player p)) { Text.msg(src, "<red>Players only.</red>"); return; }
+                if (playerActor == null) { Text.msg(src, "<red>Players only.</red>"); return; }
 
                 if (args.length >= 2) {
                     long id = parseLong(args[1], -1);
                     Report r = mgr.get(id);
                     if (r == null || !r.isOpen()) { Text.msg(src, "<red>No such open report.</red>"); return; }
 
-                    if (r.assignee != null && !r.assignee.isBlank() && !p.getUsername().equalsIgnoreCase(r.assignee)) {
+                    if (r.assignee != null && !r.assignee.isBlank() && !playerActor.username().equalsIgnoreCase(r.assignee)) {
                         if (!src.hasPermission(config.forceClaimPermission) && !src.hasPermission(config.adminPermission)) {
                             Text.msg(src, "<red>Already claimed by "+r.assignee+" (need force-claim).</red>");
                             return;
                         }
                     }
-                    mgr.assign(r.id, p.getUsername());
+                    mgr.assign(r.id, playerActor.username());
                     Text.msg(src, "<gray>You claimed report <white>#"+r.id+"</white>.</gray>");
                 } else {
                     var open = mgr.getOpenReportsDescending();
                     if (open.isEmpty()) { Text.msg(src, "<gray>No open reports.</gray>"); return; }
                     Report r = open.get(0);
-                    if (r.assignee != null && !r.assignee.isBlank() && !p.getUsername().equalsIgnoreCase(r.assignee)) {
+                    if (r.assignee != null && !r.assignee.isBlank() && !playerActor.username().equalsIgnoreCase(r.assignee)) {
                         if (!src.hasPermission(config.forceClaimPermission) && !src.hasPermission(config.adminPermission)) {
                             Text.msg(src, "<red>Top report already claimed by "+r.assignee+" (need force-claim).</red>");
                             return;
                         }
                     }
-                    mgr.assign(r.id, p.getUsername());
+                    mgr.assign(r.id, playerActor.username());
                     Text.msg(src, "<gray>You claimed report <white>#"+r.id+"</white>.</gray>");
                 }
             }
 
             case "claimed" -> {
-                if (!(src instanceof Player p)) { Text.msg(src, "<red>Players only.</red>"); return; }
+                if (playerActor == null) { Text.msg(src, "<red>Players only.</red>"); return; }
                 var mine = mgr.getOpenReportsDescending().stream()
-                        .filter(r -> r.assignee != null && r.assignee.equalsIgnoreCase(p.getUsername()))
+                        .filter(r -> r.assignee != null && r.assignee.equalsIgnoreCase(playerActor.username()))
                         .toList();
                 if (mine.isEmpty()) {
                     Text.msg(src, "<gray>You have no claimed reports.</gray>");
@@ -279,10 +281,10 @@ public class ReportsCommand implements SimpleCommand {
                     return;
                 }
                 boolean broadcasted = false;
-                if (src instanceof Player p) {
+                if (playerActor != null) {
                     String notifyPerm = (config.notifyPermission == null) ? "" : config.notifyPermission.trim();
                     if (!notifyPerm.isBlank()) {
-                        broadcasted = p.hasPermission(notifyPerm);
+                        broadcasted = playerActor.hasPermission(notifyPerm);
                     }
                 }
                 plugin.reload();
@@ -292,11 +294,11 @@ public class ReportsCommand implements SimpleCommand {
             }
 
             case "auth" -> {
-                if (!(src instanceof Player p)) {
+                if (playerActor == null) {
                     Text.msg(src, "<red>Only players can request a login code.</red>");
                     return;
                 }
-                var code = auth.issueCodeFor(p);
+                var code = auth.issueCodeFor(playerActor);
                 if (code == null) {
                     Text.msg(src, "<red>Unable to generate an auth code. Do you have permission?</red>");
                     return;
@@ -320,33 +322,33 @@ public class ReportsCommand implements SimpleCommand {
                     Text.msg(src, "<red>Admin permission required.</red>");
                     return;
                 }
-                if (!(src instanceof Player p)) {
+                if (playerActor == null) {
                     Text.msg(src, "<red>Only players can logout their sessions.</red>");
                     return;
                 }
-                int n = auth.revokeAllFor(p.getUniqueId());
+                int n = auth.revokeAllFor(playerActor.uniqueId());
                 Text.msg(src, "<gray>Revoked <white>" + n + "</white> web session(s).</gray>");
             }
 
             case "assigntome" -> {
-                if (!(src instanceof Player p)) { Text.msg(src, "<red>Players only.</red>"); return; }
+                if (playerActor == null) { Text.msg(src, "<red>Players only.</red>"); return; }
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports assigntome <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
 
-                if (r.assignee != null && !r.assignee.isBlank() && !p.getUsername().equalsIgnoreCase(r.assignee)) {
+                if (r.assignee != null && !r.assignee.isBlank() && !playerActor.username().equalsIgnoreCase(r.assignee)) {
                     if (!src.hasPermission(config.forceClaimPermission) && !src.hasPermission(config.adminPermission)) {
                         Text.msg(src, "<red>Already claimed by "+r.assignee+" (need force-claim).</red>");
                         return;
                     }
                 }
-                mgr.assign(id, p.getUsername());
+                mgr.assign(id, playerActor.username());
                 Text.msg(src, "<gray>Assigned report <white>#"+id+"</white> to you.</gray>");
             }
 
             case "unassignme" -> {
-                if (!(src instanceof Player p)) { Text.msg(src, "<red>Players only.</red>"); return; }
+                if (playerActor == null) { Text.msg(src, "<red>Players only.</red>"); return; }
                 if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports unassignme <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
@@ -355,7 +357,7 @@ public class ReportsCommand implements SimpleCommand {
                     Text.msg(src, config.msg("already-unassigned","Report #%id% is not assigned.").replace("%id%", String.valueOf(id)));
                     return;
                 }
-                if (!p.getUsername().equalsIgnoreCase(r.assignee)) {
+                if (!playerActor.username().equalsIgnoreCase(r.assignee)) {
                     Text.msg(src, "<red>You are not the assignee for #"+id+".</red>");
                     return;
                 }
@@ -368,8 +370,8 @@ public class ReportsCommand implements SimpleCommand {
     }
 
     @Override
-    public List<String> suggest(Invocation inv) {
-        String[] a = inv.arguments();
+    public List<String> suggest(CommandContext ctx) {
+        String[] a = ctx.args();
         if (a.length == 0) {
             return List.of("page", "view", "claim", "claimed", "close", "chat", "assign", "unassign", "search", "debug", "reload", "auth", "logoutall");
         }
@@ -398,7 +400,7 @@ public class ReportsCommand implements SimpleCommand {
                 if (a.length <= 1) return ids;
                 if (a.length == 2) return filter(ids, a[1]);
                 if (a.length == 3) {
-                    var names = plugin.proxy().getAllPlayers().stream().map(Player::getUsername).toList();
+                    var names = plugin.platform().onlinePlayers().stream().map(PlatformPlayer::username).toList();
                     return filter(List.copyOf(names), a[2]);
                 }
             }
@@ -457,10 +459,10 @@ public class ReportsCommand implements SimpleCommand {
         return mgr.categoryIdsFor(typeId).stream().anyMatch(c -> c.equalsIgnoreCase(catId));
     }
 
-    private void showPage(CommandSource src, int page) { showPage(src, page, null, null); }
+    private void showPage(CommandActor src, int page) { showPage(src, page, null, null); }
 
     /** Optional filtering: by type and category. */
-    private void showPage(CommandSource src, int page, String typeFilter, String categoryFilter) {
+    private void showPage(CommandActor src, int page, String typeFilter, String categoryFilter) {
         List<Report> open = mgr.getOpenReportsDescending();
         if (typeFilter != null) {
             open = open.stream().filter(r -> r.typeId.equalsIgnoreCase(typeFilter)).toList();
@@ -527,9 +529,9 @@ public class ReportsCommand implements SimpleCommand {
     private String deriveServer(Report r) {
         // 1) target online now?
         if (r.reported != null && !r.reported.isBlank()) {
-            var opt = plugin.proxy().getPlayer(r.reported);
+            var opt = plugin.platform().findPlayer(r.reported);
             if (opt.isPresent()) {
-                var sv = opt.get().getCurrentServer().map(s -> s.getServerInfo().getName()).orElse(null);
+                var sv = opt.get().currentServerName().orElse(null);
                 if (sv != null && !sv.isBlank()) return sv;
             }
         }
@@ -591,7 +593,7 @@ public class ReportsCommand implements SimpleCommand {
     }
 
     /** Expanded view for a single report (used by "view"). */
-    private void expand(CommandSource src, Report r) {
+    private void expand(CommandActor src, Report r) {
         String header = config.msg("expanded-header","Report #%id% (%type% / %category%)")
                 .replace("%id%", String.valueOf(r.id))
                 .replace("%type%", r.typeDisplay)
@@ -641,21 +643,24 @@ public class ReportsCommand implements SimpleCommand {
                 .append("'><click:run_command:'/reports chat ").append(r.id).append("'>Chat Logs</click></hover></aqua><gray>]</gray> ");
 
         // Only show Jump if the server actually exists on the proxy
-        if (!"UNKNOWN".equalsIgnoreCase(serverName)
-                && plugin.proxy().getServer(serverName).isPresent()) {
-
-            String jumpCmdTemplate = config.msg("jump-command-template", "/server %server%");
-            String jumpCmd = jumpCmdTemplate.replace("%server%", serverName);
-
+        var jumpOpt = plugin.platform().jumpCommandFor(serverName);
+        if (jumpOpt.isPresent()) {
+            String baseCommand = jumpOpt.get();
+            String template = config.msg("jump-command-template", baseCommand);
+            String jumpCmd = template
+                    .replace("%command%", baseCommand)
+                    .replace("%server%", serverName);
             actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipJump))
                     .append("'><click:run_command:'").append(Text.escape(jumpCmd))
                     .append("'>Jump to server</click></hover></aqua><gray>]</gray> ");
         }
 
         // Quick-assign buttons
-        if (src instanceof Player p) {
+        var playerOpt = src.asPlayer();
+        if (playerOpt.isPresent()) {
+            PlatformPlayer p = playerOpt.get();
             boolean assigned = r.assignee != null && !r.assignee.isBlank();
-            boolean mine = assigned && p.getUsername().equalsIgnoreCase(r.assignee);
+            boolean mine = assigned && p.username().equalsIgnoreCase(r.assignee);
             boolean canForce = p.hasPermission(config.forceClaimPermission)
                     || p.hasPermission(config.adminPermission);
 
@@ -679,7 +684,7 @@ public class ReportsCommand implements SimpleCommand {
     }
 
     /** Paginated inline chat output when web viewer is disabled. */
-    private void showChatPage(CommandSource src, Report r, int page) {
+    private void showChatPage(CommandActor src, Report r, int page) {
         int per = Math.max(1, config.previewLines);
         int total = r.chat.size();
         int pages = Math.max(1, (int)Math.ceil(total / (double) per));
@@ -754,7 +759,7 @@ public class ReportsCommand implements SimpleCommand {
                 .toList();
     }
 
-    private void showPriorityBreakdown(CommandSource src, Report r) {
+    private void showPriorityBreakdown(CommandActor src, Report r) {
         var breakdown = mgr.debugPriority(r);
         if (!breakdown.enabled) {
             Text.msg(src, "<gray>Priority scoring is disabled; ordering falls back to <white>" + Text.escape(breakdown.tieBreaker) + "</white>.</gray>");

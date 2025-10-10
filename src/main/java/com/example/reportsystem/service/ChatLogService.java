@@ -4,13 +4,16 @@ import com.example.reportsystem.ReportSystem;
 import com.example.reportsystem.config.PluginConfig;
 import com.example.reportsystem.model.ChatMessage;
 import com.example.reportsystem.model.Report;
-import com.velocitypowered.api.event.Subscribe;
-import com.velocitypowered.api.event.connection.PostLoginEvent;
-import com.velocitypowered.api.event.player.PlayerChatEvent;
-import com.velocitypowered.api.proxy.Player;
-import org.slf4j.Logger;
+import com.example.reportsystem.platform.ChatListener;
+import com.example.reportsystem.platform.PlatformPlayer;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
@@ -19,7 +22,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  *  1) Rolling buffer for ALL players (so first report gets recent lines).
  *  2) Live-append for players under "watch" (anyone with an open report).
  */
-public class ChatLogService {
+public class ChatLogService implements ChatListener {
 
     // Rolling buffer defaults
     private static final int BUFFER_SECONDS = 120;        // last ~2 minutes
@@ -28,8 +31,6 @@ public class ChatLogService {
     private final ReportSystem plugin;
     private final ReportManager mgr;
     private volatile PluginConfig config;
-    private final Logger log;
-
     /** players currently being "watched" to live-append into their open reports */
     private final Set<String> watchedPlayers = ConcurrentHashMap.newKeySet();
 
@@ -40,10 +41,9 @@ public class ChatLogService {
         this.plugin = plugin;
         this.mgr = mgr;
         this.config = config;
-        this.log = plugin.logger();
-
         // Let the manager pull recent lines on new-report creation
         this.mgr.setChatLogService(this);
+        refreshWatchList();
     }
 
     public void setConfig(PluginConfig cfg) { this.config = cfg; }
@@ -58,22 +58,21 @@ public class ChatLogService {
         }
     }
 
-    @Subscribe
-    public void onLogin(PostLoginEvent e) {
+    @Override
+    public void onPlayerLogin(PlatformPlayer player) {
         // Refresh on login so immediate chat from targets is captured going forward
         refreshWatchList();
     }
 
-    @Subscribe
-    public void onChat(PlayerChatEvent e) {
-        Player p = e.getPlayer();
-        String name = p.getUsername();
+    @Override
+    public void onPlayerChat(PlatformPlayer player, String message) {
+        String name = player.username();
         String lowered = name.toLowerCase(Locale.ROOT);
-        String server = p.getCurrentServer().map(s -> s.getServerInfo().getName()).orElse("UNKNOWN");
+        String server = player.currentServerName().orElse("UNKNOWN");
         long now = System.currentTimeMillis();
 
         // Ensure ChatMessage(server) is truly a server name (not the username)
-        ChatMessage msg = new ChatMessage(now, name, server, e.getMessage());
+        ChatMessage msg = new ChatMessage(now, name, server, message);
 
         // 1) ALWAYS record in rolling buffer
         recordToBuffer(name, msg, now);

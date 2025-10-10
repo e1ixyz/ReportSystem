@@ -7,13 +7,9 @@ import com.example.reportsystem.model.Report;
 import com.example.reportsystem.model.ReportStatus;
 import com.example.reportsystem.model.ReportType;
 import org.slf4j.Logger;
-import org.yaml.snakeyaml.Yaml;
+import com.example.reportsystem.storage.ReportStorage;
+import com.example.reportsystem.storage.ReportStorage.StoredReport;
 
-import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,7 +20,7 @@ import java.util.stream.Collectors;
  * ReportManager
  *
  * - Thread-safe in-memory store of reports
- * - Persists each report as YAML: <dataDir>/reports/<id>.yml
+ * - Persists each report via pluggable storage backends (YAML filesystem or MySQL)
  * - Stacking by (reported + type + category) within config.stackWindowSeconds
  * - Priority sorting for open reports: higher count first, then time (config.tieBreaker)
  * - Closed reports ordering tracked via internal closedAt map (Report has no closedAt field)
@@ -38,7 +34,7 @@ public class ReportManager {
 
     private final ReportSystem plugin;
     private final Logger log;
-    private final Path storeDir;
+    private final ReportStorage storage;
     private volatile PluginConfig config;
 
     private volatile ChatLogService chat; // optional; injected by ChatLogService constructor
@@ -51,23 +47,12 @@ public class ReportManager {
     /** closed timestamp per id (since Report doesn't have a closedAt field) */
     private final Map<Long, Long> closedAtById = new ConcurrentHashMap<>();
 
-    private final Yaml yaml = new Yaml();
-
-    public ReportManager(ReportSystem plugin, Path dataDir, PluginConfig config) {
+    public ReportManager(ReportSystem plugin, PluginConfig config, ReportStorage storage) {
         this.plugin = plugin;
         this.log = plugin.logger();
-        this.storeDir = dataDir.resolve("reports");
         this.config = config;
-        try {
-            Files.createDirectories(storeDir);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to create reports dir: " + storeDir, e);
-        }
-        try {
-            loadAll();
-        } catch (Exception e) {
-            log.warn("Failed to load reports: {}", e.toString());
-        }
+        this.storage = storage;
+        loadFromStorage();
     }
 
     /* =========================
@@ -335,134 +320,39 @@ public class ReportManager {
     /* =========================
               PERSISTENCE
        ========================= */
-
-    private void loadAll() throws IOException {
-        if (!Files.isDirectory(storeDir)) return;
-
+    private void loadFromStorage() {
         long maxId = 0;
-        try (DirectoryStream<Path> ds = Files.newDirectoryStream(storeDir, "*.yml")) {
-            for (Path p : ds) {
-                try (Reader reader = Files.newBufferedReader(p, StandardCharsets.UTF_8)) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> m = yaml.load(reader);
-                    if (m == null) continue;
-                    Report r = fromMap(m);
-                    if (r != null) {
-                        reports.put(r.id, r);
-                        maxId = Math.max(maxId, r.id);
-                        // restore closedAt (stored in file) and lastUpdate
-                        long ca = getLong(m.get("closedAt"), 0L);
-                        if (ca > 0) closedAtById.put(r.id, ca);
-                        lastUpdateMillis.put(r.id, Math.max(r.timestamp, ca));
-                    }
-                } catch (Exception ex) {
-                    log.warn("Failed to load {}: {}", p.getFileName(), ex.toString());
-                }
-            }
-        }
-        nextId.set(Math.max(nextId.get(), maxId + 1));
-        log.info("Loaded {} reports (nextId={})", reports.size(), nextId.get());
-    }
-
-    private void trySave(Report r) {
-        try { saveOne(r); }
-        catch (Exception e) { log.warn("Failed to save report #{}: {}", r.id, e.toString()); }
-    }
-
-    private void saveOne(Report r) throws IOException {
-        Path out = storeDir.resolve(r.id + ".yml");
-        Map<String, Object> m = toMap(r);
-        Path tmp = out.resolveSibling(out.getFileName() + ".tmp");
-        try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-            yaml.dump(m, w);
-        }
-        Files.move(tmp, out, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-    }
-
-    private Map<String, Object> toMap(Report r) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", r.id);
-        m.put("reporter", nullIfBlank(r.reporter));
-        m.put("reported", nullIfBlank(r.reported));
-        m.put("typeId", r.typeId);
-        m.put("typeDisplay", r.typeDisplay);
-        m.put("categoryId", r.categoryId);
-        m.put("categoryDisplay", r.categoryDisplay);
-        m.put("reason", nullIfBlank(r.reason));
-        m.put("count", r.count);
-        m.put("timestamp", r.timestamp);
-        m.put("status", r.status == null ? ReportStatus.OPEN.name() : r.status.name());
-        m.put("assignee", nullIfBlank(r.assignee));
-        m.put("sourceServer", nullIfBlank(r.sourceServer));
-        long closedAt = closedAtById.getOrDefault(r.id, 0L);
-        m.put("closedAt", closedAt);
-
-        if (r.chat != null && !r.chat.isEmpty()) {
-            List<Map<String, Object>> msgs = new ArrayList<>();
-            for (ChatMessage c : r.chat) {
-                Map<String, Object> cm = new LinkedHashMap<>();
-                cm.put("time", c.time);
-                cm.put("player", c.player);
-                cm.put("server", c.server);
-                cm.put("message", c.message);
-                msgs.add(cm);
-            }
-            m.put("chat", msgs);
-        }
-        return m;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Report fromMap(Map<String, Object> m) {
         try {
-            Report r = new Report();
-            r.id = getLong(m.get("id"), 0L);
-            if (r.id <= 0) return null;
-
-            r.reporter = asStr(m.get("reporter"));
-            r.reported = asStr(m.get("reported"));
-            r.typeId = asStr(m.get("typeId"));
-            r.typeDisplay = asStr(m.get("typeDisplay"));
-            r.categoryId = asStr(m.get("categoryId"));
-            r.categoryDisplay = asStr(m.get("categoryDisplay"));
-            r.reason = asStr(m.get("reason"));
-            r.count = (int) getLong(m.get("count"), 1);
-            r.timestamp = getLong(m.get("timestamp"), System.currentTimeMillis());
-
-            String st = asStr(m.get("status"));
-            r.status = (st == null || st.isBlank()) ? ReportStatus.OPEN : ReportStatus.valueOf(st);
-            r.assignee = asStr(m.get("assignee"));
-            r.sourceServer = asStr(m.get("sourceServer"));
-
-            Object chatObj = m.get("chat");
-            if (chatObj instanceof List<?> list) {
-                if (r.chat == null) r.chat = new ArrayList<>();
-                for (Object o : list) {
-                    if (o instanceof Map<?, ?> mm) {
-                        long t = getLong(mm.get("time"), System.currentTimeMillis());
-                        String pl = asStr(mm.get("player"));
-                        String sv = asStr(mm.get("server"));
-                        String ms = asStr(mm.get("message"));
-                        r.chat.add(new ChatMessage(t, pl, sv, ms));
-                    }
+            for (StoredReport sr : storage.loadAll()) {
+                Report report = sr.report();
+                reports.put(report.id, report);
+                maxId = Math.max(maxId, report.id);
+                if (sr.closedAt() != null && sr.closedAt() > 0) {
+                    closedAtById.put(report.id, sr.closedAt());
                 }
+                long lastUpdate = sr.lastUpdateMillis();
+                if (lastUpdate <= 0) {
+                    lastUpdate = Math.max(report.timestamp,
+                            sr.closedAt() == null ? report.timestamp : sr.closedAt());
+                }
+                lastUpdateMillis.put(report.id, lastUpdate);
             }
-            return r;
-        } catch (Throwable t) {
-            log.warn("Failed to parse report map: {}", t.toString());
-            return null;
+            nextId.set(Math.max(nextId.get(), maxId + 1));
+            log.info("Loaded {} reports via {} storage (nextId={})", reports.size(), storage.backendId(), nextId.get());
+        } catch (Exception ex) {
+            log.warn("Failed to load reports from {} storage: {}", storage.backendId(), ex.toString());
         }
     }
 
-    private Object nullIfBlank(String s) {
-        return (s == null || s.isBlank()) ? null : s;
-    }
-    private String asStr(Object o) { return o == null ? null : String.valueOf(o); }
-    private long getLong(Object o, long def) {
-        if (o == null) return def;
-        if (o instanceof Number n) return n.longValue();
-        try { return Long.parseLong(String.valueOf(o)); } catch (Exception e) { return def; }
+    private void trySave(Report report) {
+        long lastUpdate = lastUpdateMillis.getOrDefault(report.id, System.currentTimeMillis());
+        Long closedAt = closedAtById.get(report.id);
+        if (closedAt != null && closedAt <= 0) closedAt = null;
+        try {
+            storage.save(report, lastUpdate, closedAt);
+        } catch (Exception ex) {
+            log.warn("Failed to persist report #{} via {} storage: {}", report.id, storage.backendId(), ex.toString());
+        }
     }
 
     /* =========================

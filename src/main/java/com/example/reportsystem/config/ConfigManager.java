@@ -66,6 +66,27 @@ public class ConfigManager {
         pc.colorRed             = get(root, "stack-colors.red", "<red>");
         pc.colorDarkRed         = get(root, "stack-colors.dark-red", "<dark_red>");
 
+        // Storage backend
+        Map<String,Object> storage = (Map<String,Object>) root.getOrDefault("storage", Map.of());
+        String typeStr = get(storage, "type", pc.storage.type.name());
+        try {
+            pc.storage.type = PluginConfig.StorageConfig.Type.valueOf(typeStr.toUpperCase());
+        } catch (Exception ignored) {
+            pc.storage.type = PluginConfig.StorageConfig.Type.YAML;
+        }
+        Map<String,Object> mysql = (Map<String,Object>) storage.getOrDefault("mysql", Map.of());
+        pc.storage.mysql.host = get(mysql, "host", pc.storage.mysql.host);
+        pc.storage.mysql.port = get(mysql, "port", pc.storage.mysql.port);
+        pc.storage.mysql.database = get(mysql, "database", pc.storage.mysql.database);
+        pc.storage.mysql.username = get(mysql, "username", pc.storage.mysql.username);
+        pc.storage.mysql.password = get(mysql, "password", pc.storage.mysql.password);
+        pc.storage.mysql.useSsl = get(mysql, "use-ssl", pc.storage.mysql.useSsl);
+        pc.storage.mysql.allowPublicKeyRetrieval = get(mysql, "allow-public-key-retrieval", pc.storage.mysql.allowPublicKeyRetrieval);
+        pc.storage.mysql.connectionOptions = get(mysql, "connection-options", pc.storage.mysql.connectionOptions);
+        pc.storage.mysql.tableReports = get(mysql, "table-reports", pc.storage.mysql.tableReports);
+        pc.storage.mysql.tableChat = get(mysql, "table-chat", pc.storage.mysql.tableChat);
+        pc.storage.mysql.connectionPoolSize = get(mysql, "pool-size", pc.storage.mysql.connectionPoolSize);
+
         // HTTP server
         Map<String,Object> http = (Map<String,Object>) root.getOrDefault("http-server", Map.of());
         pc.httpServer.enabled        = get(http, "enabled", false);
