@@ -1,6 +1,4 @@
 # === ReportSystem – Default Configuration ===
-#
-# This single configuration is shared between Velocity proxies and Paper/Spigot servers.
 
 # ------------------------------------------------------------------------------------
 # CORE
@@ -10,10 +8,11 @@ stack-window-seconds: 600                # Seconds to merge ("stack") identical 
 export-html-chatlog: true                # If true, chat logs export to HTML (used when web viewer is enabled)
 html-export-dir: "html-logs"             # Folder under the plugin data directory for HTML exports
 reports-per-page: 10
+staff-join-summary-delay-ticks: 40          # Delay before sending staff summary on join (ticks)
 
-# Permissions (standard permission nodes; apply them through Velocity or Bukkit permission managers)
+# Permissions
 staff-permission: "reportsystem.reports"          # Staff can use /reports, bypass cooldown, view protected web pages, etc.
-notify-permission: "reportsystem.notify"          # Staff who should receive in-game notifications about new reports
+notify-permission: "reportsystem.notify"          # Staff who should receive ingame notifications about new reports
 force-claim-permission: "reportsystem.forceclaim" # Staff who may override someone else’s claim
 admin-permission: "reportsystem.admin"            # Admin-only: /reports reload, /reports logoutall, force-claim override fallback
 
@@ -37,26 +36,8 @@ preview-line-max-chars: 200
 # set EITHER public-base-url OR http-server.external-base-url (prefer public-base-url).
 public-base-url: ""                      # e.g. "https://reports.example.com"
 
-# ------------------------------------------------------------------------------------
-# STORAGE BACKEND
-# ------------------------------------------------------------------------------------
-storage:
-  type: yaml                             # "yaml" (default) or "mysql"
-  mysql:
-    host: "127.0.0.1"
-    port: 3306
-    database: "reportsystem"
-    username: "root"
-    password: "password"
-    use-ssl: true
-    allow-public-key-retrieval: false     # Set true if your MySQL server needs it (e.g. local dev with caching_sha2)
-    connection-options: "characterEncoding=UTF-8&useUnicode=true"
-    table-reports: "reports"
-    table-chat: "report_chat"
-    pool-size: 8
-
 http-server:
-  enabled: false                         # Built-in tiny web server to serve html-logs/ (works on both proxy and server hosts)
+  enabled: false                         # Built-in tiny web server to serve html-logs/
   external-base-url: ""                  # e.g. "https://reports.example.com" (used for links when public-base-url is blank)
   bind: "0.0.0.0"                        # Listen address
   port: 8085
@@ -129,6 +110,31 @@ priority:
     "player/chat": 15
 
 # ------------------------------------------------------------------------------------
+# QUICK ACTION BUTTONS UNDER /reports
+# ------------------------------------------------------------------------------------
+# Customize the buttons shown beneath the /reports overview. Each entry supports:
+#   command   - required; run when the button is clicked
+#   label     - optional inline label (fall back to label-key if omitted)
+#   hover     - optional hover text (fall back to hover-key if omitted)
+#   color     - MiniMessage color/format tag to wrap the label (default "<aqua>")
+#   permission- optional permission required to see the button
+#   click     - run_command, suggest_command, or open_url (default run_command)
+#   label-key / hover-key - reuse messages.* entries for translation
+reports-actions:
+  - command: "/reports claim"
+    label-key: "button-claim-highest"
+    hover-key: "tip-claim-highest"
+    color: "<green>"
+  - command: "/reports claimed"
+    label-key: "button-claimed"
+    hover-key: "tip-claimed-list"
+    color: "<aqua>"
+  - command: "/reporthistory"
+    label-key: "button-reporthistory"
+    hover-key: "tip-reporthistory"
+    color: "<gold>"
+
+# ------------------------------------------------------------------------------------
 # MESSAGES / LOCALIZATION
 # ------------------------------------------------------------------------------------
 messages:
@@ -156,6 +162,17 @@ messages:
   page-header-filtered: "Reports (%type%/%cat%) Page %page%/%pages%"
   reloaded: "ReportSystem reloaded."
   chatlog-none: "No chat messages were captured for this report."
+  claim-none: "<gray>No claimable reports available.</gray>"
+  force-claimed: "<gray>You force-claimed report <white>#%id%</white>.</gray>"
+  page-start: "<gray>You're already on the first page.</gray>"
+  page-end: "<gray>You're already on the last page.</gray>"
+  staff-join-summary: "<gray>Reports summary:</gray> %open% <gray>•</gray> %claimed% <gray>•</gray> %closed%."
+  summary-open-label: "%count% open"
+  summary-claimed-label: "%count% claimed"
+  summary-closed-label: "%count% closed"
+  summary-open-tip: "View open reports"
+  summary-claimed-tip: "View your claimed reports"
+  summary-closed-tip: "View closed reports"
 
   # Report history (closed)
   history-page-empty: "No closed reports."
@@ -179,6 +196,14 @@ messages:
   tip-assign-me: "Assign to me"
   tip-unassign: "Unassign"
   tip-force-claim: "Force-claim"
+  tip-claim-highest: "Claim the highest priority report"
+  tip-claimed-list: "View your claimed reports"
+  tip-auth-code: "Request a chat log auth code"
+  tip-reporthistory: "View closed reports"
+  button-claim-highest: "Claim Highest"
+  button-claimed: "Claimed"
+  button-chatlog-auth: "Chat Log Auth"
+  button-reporthistory: "Report History"
 
   # Hover tooltips for list line segments
   tip-target: "Target: %name%"
@@ -199,8 +224,6 @@ messages:
   # Chat log viewer (web and inline)
   open-chatlog-label: "Open chat log"
   auth-code-ttl-s: "120"
-  # Jump button command template.
-  # Velocity proxies default to "/server %server%"; on Paper you can swap this to any command staff use to jump (e.g. "/tp %server%").
   jump-command-template: "/server %server%"
 
 # ------------------------------------------------------------------------------------

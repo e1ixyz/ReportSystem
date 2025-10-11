@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,7 @@ public class PluginConfig {
     public String htmlExportDir = "html-logs";
 
     public int reportsPerPage = 10;
+    public int staffJoinSummaryDelayTicks = 40;
     /** Staff-level permission (can see /reports etc.) */
     public String staffPermission = "reportsystem.reports";
     /** Admin-level permission (reload, logoutall, force-claim) */
@@ -50,9 +52,6 @@ public class PluginConfig {
     public String colorRed = "<red>";
     public String colorDarkRed = "<dark_red>";
 
-    // Storage backend selection
-    public StorageConfig storage = new StorageConfig();
-
     // Optional embedded HTTP server
     public HttpServerConfig httpServer = new HttpServerConfig();
 
@@ -68,6 +67,7 @@ public class PluginConfig {
     // Messages & dynamic types
     public Map<String, Object> messages = new LinkedHashMap<>();
     public Map<String, ReportTypeDef> reportTypes = new LinkedHashMap<>();
+    public List<QuickAction> reportsActions = new ArrayList<>(QuickAction.defaultActions());
 
     // Helpers
     public String msg(String key, String def) {
@@ -92,27 +92,6 @@ public class PluginConfig {
         public String username = "ReportSystem";
         public String avatarUrl = "";
         public int timeoutMs = 4000;
-    }
-
-    public static class StorageConfig {
-        public enum Type { YAML, MYSQL }
-
-        public Type type = Type.YAML;
-        public MySqlConfig mysql = new MySqlConfig();
-    }
-
-    public static class MySqlConfig {
-        public String host = "127.0.0.1";
-        public int port = 3306;
-        public String database = "reportsystem";
-        public String username = "root";
-        public String password = "password";
-        public boolean useSsl = true;
-        public boolean allowPublicKeyRetrieval = false;
-        public String connectionOptions = "characterEncoding=UTF-8&useUnicode=true";
-        public String tableReports = "reports";
-        public String tableChat = "report_chat";
-        public int connectionPoolSize = 8;
     }
 
     public static class HttpServerConfig {
@@ -186,5 +165,79 @@ public class PluginConfig {
     }
     public static PluginConfig loadOrCreate(Path dataDir, Logger logger) {
         return loadOrCreate(dataDir);
+    }
+
+    /** Configurable quick action buttons rendered beneath the /reports overview. */
+    public static class QuickAction {
+        public String command;
+        public String label;
+        public String hover;
+        public String color;
+        public String permission;
+        public String click;
+        public String labelKey;
+        public String hoverKey;
+        public String labelFallback;
+        public String hoverFallback;
+
+        public QuickAction() {
+            this.color = "<aqua>";
+            this.permission = "";
+            this.click = "run_command";
+            this.labelFallback = "Action";
+            this.hoverFallback = "Execute";
+        }
+
+        public QuickAction(String command, String labelKey, String labelFallback,
+                           String hoverKey, String hoverFallback,
+                           String color, String permission, String click) {
+            this();
+            this.command = command;
+            this.labelKey = labelKey;
+            this.labelFallback = labelFallback;
+            this.hoverKey = hoverKey;
+            this.hoverFallback = hoverFallback;
+            if (color != null && !color.isBlank()) this.color = color;
+            if (permission != null) this.permission = permission;
+            if (click != null && !click.isBlank()) this.click = click;
+        }
+
+        public QuickAction copy() {
+            QuickAction q = new QuickAction();
+            q.command = this.command;
+            q.label = this.label;
+            q.hover = this.hover;
+            q.color = this.color;
+            q.permission = this.permission;
+            q.click = this.click;
+            q.labelKey = this.labelKey;
+            q.hoverKey = this.hoverKey;
+            q.labelFallback = this.labelFallback;
+            q.hoverFallback = this.hoverFallback;
+            return q;
+        }
+
+        public static List<QuickAction> defaultActions() {
+            List<QuickAction> defaults = new ArrayList<>();
+            defaults.add(new QuickAction(
+                    "/reports claim",
+                    "button-claim-highest", "Claim Highest",
+                    "tip-claim-highest", "Claim the highest priority report",
+                    "<green>", "", "run_command"
+            ));
+            defaults.add(new QuickAction(
+                    "/reports claimed",
+                    "button-claimed", "Claimed",
+                    "tip-claimed-list", "View your claimed reports",
+                    "<aqua>", "", "run_command"
+            ));
+            defaults.add(new QuickAction(
+                    "/reporthistory",
+                    "button-reporthistory", "Report History",
+                    "tip-reporthistory", "View closed reports",
+                    "<gold>", "", "run_command"
+            ));
+            return defaults;
+        }
     }
 }

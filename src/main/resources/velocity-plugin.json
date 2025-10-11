@@ -4,5 +4,5 @@
   "version": "3.0.0",
   "description": "Dynamic reports with mutli-factor report sorting, pagination, search, assignees, chat log webserver, and more.",
   "authors": ["e1ixyz"],
-  "main": "com.example.reportsystem.platform.velocity.VelocityBootstrap"
+  "main": "com.example.reportsystem.ReportSystem"
 }

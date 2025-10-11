@@ -1,8 +1,8 @@
 package com.example.reportsystem.util;
 
-import com.example.reportsystem.platform.CommandActor;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import com.velocitypowered.api.command.CommandSource;
 import org.slf4j.Logger;
 
 public class Text {
@@ -17,9 +17,8 @@ public class Text {
         return MM.deserialize(mini);
     }
 
-    public static void msg(CommandActor actor, String mini) {
-        if (actor == null) return;
-        actor.sendMessage(mm(PREFIX + (mini == null ? "" : mini)));
+    public static void msg(CommandSource src, String mini) {
+        src.sendMessage(mm(PREFIX + (mini == null ? "" : mini)));
     }
 
     public static String escape(String s) {

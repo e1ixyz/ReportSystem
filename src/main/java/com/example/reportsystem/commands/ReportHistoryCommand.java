@@ -3,14 +3,13 @@ package com.example.reportsystem.commands;
 import com.example.reportsystem.ReportSystem;
 import com.example.reportsystem.config.PluginConfig;
 import com.example.reportsystem.model.Report;
-import com.example.reportsystem.platform.CommandActor;
-import com.example.reportsystem.platform.CommandContext;
-import com.example.reportsystem.platform.CommandHandler;
 import com.example.reportsystem.service.HtmlExporter;
 import com.example.reportsystem.service.ReportManager;
 import com.example.reportsystem.util.Pagination;
 import com.example.reportsystem.util.Text;
 import com.example.reportsystem.util.TimeUtil;
+import com.velocitypowered.api.command.CommandSource;
+import com.velocitypowered.api.command.SimpleCommand;
 import net.kyori.adventure.text.Component;
 
 import java.util.ArrayList;
@@ -31,7 +30,7 @@ import java.util.Locale;
  *   - target/assignee/server have hover tooltips.
  *   - Expand label uses messages.label-expand (e.g., "^")
  */
-public class ReportHistoryCommand implements CommandHandler {
+public class ReportHistoryCommand implements SimpleCommand {
 
     private final ReportSystem plugin;
     private final ReportManager mgr;
@@ -48,14 +47,14 @@ public class ReportHistoryCommand implements CommandHandler {
     }
 
     @Override
-    public void execute(CommandContext ctx) {
-        CommandActor src = ctx.actor();
+    public void execute(Invocation inv) {
+        CommandSource src = inv.source();
         if (!src.hasPermission(config.staffPermission)) {
             Text.msg(src, config.msg("no-permission","You don't have permission."));
             return;
         }
 
-        String[] args = ctx.args();
+        String[] args = inv.arguments();
         if (args.length == 0) { showPage(src, 1); return; }
 
         switch (args[0].toLowerCase(Locale.ROOT)) {
@@ -138,8 +137,8 @@ public class ReportHistoryCommand implements CommandHandler {
     }
 
     @Override
-    public List<String> suggest(CommandContext ctx) {
-        String[] a = ctx.args();
+    public List<String> suggest(Invocation inv) {
+        String[] a = inv.arguments();
         if (a.length == 0) {
             return List.of("page", "view", "chat", "reopen");
         }
@@ -164,7 +163,7 @@ public class ReportHistoryCommand implements CommandHandler {
 
     /* ------------------------- UI ------------------------- */
 
-    private void showPage(CommandActor src, int page) {
+    private void showPage(CommandSource src, int page) {
         List<Report> closed = mgr.getClosedReportsDescending();
         if (closed.isEmpty()) { Text.msg(src, config.msg("history-page-empty","No closed reports.")); return; }
 
@@ -213,7 +212,7 @@ public class ReportHistoryCommand implements CommandHandler {
                 + colorStackBadge(r.count);
     }
 
-    private void expandClosed(CommandActor src, Report r) {
+    private void expandClosed(CommandSource src, Report r) {
         Text.msg(src, config.msg("expanded-header","Report #%id% (%type% / %category%)")
                 .replace("%id%", String.valueOf(r.id))
                 .replace("%type%", r.typeDisplay)
@@ -254,13 +253,9 @@ public class ReportHistoryCommand implements CommandHandler {
         actions.append("<gray>[</gray><green><hover:show_text:'").append(Text.escape(tipReopen))
                 .append("'><click:run_command:'/reporthistory reopen ").append(r.id).append("'>Reopen</click></hover></green><gray>]</gray> ");
 
-        var jumpOpt = plugin.platform().jumpCommandFor(serverName);
-        if (jumpOpt.isPresent()) {
-            String baseCommand = jumpOpt.get();
-            String template = config.msg("jump-command-template", baseCommand);
-            String jumpCmd = template
-                    .replace("%command%", baseCommand)
-                    .replace("%server%", serverName);
+        if (!"UNKNOWN".equalsIgnoreCase(serverName)) {
+            String jumpCmdTemplate = config.msg("jump-command-template", "/server %server%");
+            String jumpCmd = jumpCmdTemplate.replace("%server%", serverName);
             actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipJump))
                     .append("'><click:run_command:'").append(Text.escape(jumpCmd))
                     .append("'>Jump to server</click></hover></aqua><gray>]</gray> ");
@@ -330,7 +325,7 @@ public class ReportHistoryCommand implements CommandHandler {
     }
 
     /** Paginated inline chat output when web viewer is disabled. */
-    private void showChatPage(CommandActor src, Report r, int page) {
+    private void showChatPage(CommandSource src, Report r, int page) {
         int per = Math.max(1, config.previewLines);
         int total = r.chat.size();
         int pages = Math.max(1, (int)Math.ceil(total / (double) per));

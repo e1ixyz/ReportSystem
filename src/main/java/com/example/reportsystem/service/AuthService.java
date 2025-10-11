@@ -1,7 +1,7 @@
 package com.example.reportsystem.service;
 
 import com.example.reportsystem.config.PluginConfig;
-import com.example.reportsystem.platform.PlatformPlayer;
+import com.velocitypowered.api.proxy.Player;
 import org.slf4j.Logger;
 
 import java.security.SecureRandom;
@@ -46,14 +46,14 @@ public class AuthService {
     }
 
     /** Issue a short one-time numeric code for a staff player. */
-    public Code issueCodeFor(PlatformPlayer p) {
+    public Code issueCodeFor(Player p) {
         if (cfg.auth.requirePermission && !p.hasPermission(cfg.staffPermission)) return null;
         int len = Math.max(4, cfg.auth.codeLength);
         String code = generateDigits(len);
         long ttl = Math.max(15_000L, cfg.auth.codeTtlSeconds * 1000L);
-        Code obj = new Code(code, p.uniqueId(), p.username(), System.currentTimeMillis() + ttl);
+        Code obj = new Code(code, p.getUniqueId(), p.getUsername(), System.currentTimeMillis() + ttl);
         codes.put(code, obj);
-        log.info("Auth code {} issued to {} (ttl={}s)", code, p.username(), ttl / 1000);
+        log.info("Auth code {} issued to {} (ttl={}s)", code, p.getUsername(), ttl / 1000);
         return obj;
     }
 

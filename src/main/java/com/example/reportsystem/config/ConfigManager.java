@@ -6,6 +6,7 @@ import org.yaml.snakeyaml.Yaml;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -44,6 +45,7 @@ public class ConfigManager {
         pc.exportHtmlChatlog    = get(root, "export-html-chatlog", true);
         pc.htmlExportDir        = get(root, "html-export-dir", "html-logs");
         pc.reportsPerPage       = get(root, "reports-per-page", 10);
+        pc.staffJoinSummaryDelayTicks = get(root, "staff-join-summary-delay-ticks", pc.staffJoinSummaryDelayTicks);
         pc.staffPermission      = get(root, "staff-permission", "reportsystem.reports");
         pc.adminPermission      = get(root, "admin-permission", "reportsystem.admin");
         pc.forceClaimPermission = get(root, "force-claim-permission", "reportsystem.forceclaim");
@@ -65,27 +67,6 @@ public class ConfigManager {
         pc.colorGold            = get(root, "stack-colors.gold", "<gold>");
         pc.colorRed             = get(root, "stack-colors.red", "<red>");
         pc.colorDarkRed         = get(root, "stack-colors.dark-red", "<dark_red>");
-
-        // Storage backend
-        Map<String,Object> storage = (Map<String,Object>) root.getOrDefault("storage", Map.of());
-        String typeStr = get(storage, "type", pc.storage.type.name());
-        try {
-            pc.storage.type = PluginConfig.StorageConfig.Type.valueOf(typeStr.toUpperCase());
-        } catch (Exception ignored) {
-            pc.storage.type = PluginConfig.StorageConfig.Type.YAML;
-        }
-        Map<String,Object> mysql = (Map<String,Object>) storage.getOrDefault("mysql", Map.of());
-        pc.storage.mysql.host = get(mysql, "host", pc.storage.mysql.host);
-        pc.storage.mysql.port = get(mysql, "port", pc.storage.mysql.port);
-        pc.storage.mysql.database = get(mysql, "database", pc.storage.mysql.database);
-        pc.storage.mysql.username = get(mysql, "username", pc.storage.mysql.username);
-        pc.storage.mysql.password = get(mysql, "password", pc.storage.mysql.password);
-        pc.storage.mysql.useSsl = get(mysql, "use-ssl", pc.storage.mysql.useSsl);
-        pc.storage.mysql.allowPublicKeyRetrieval = get(mysql, "allow-public-key-retrieval", pc.storage.mysql.allowPublicKeyRetrieval);
-        pc.storage.mysql.connectionOptions = get(mysql, "connection-options", pc.storage.mysql.connectionOptions);
-        pc.storage.mysql.tableReports = get(mysql, "table-reports", pc.storage.mysql.tableReports);
-        pc.storage.mysql.tableChat = get(mysql, "table-chat", pc.storage.mysql.tableChat);
-        pc.storage.mysql.connectionPoolSize = get(mysql, "pool-size", pc.storage.mysql.connectionPoolSize);
 
         // HTTP server
         Map<String,Object> http = (Map<String,Object>) root.getOrDefault("http-server", Map.of());
@@ -151,6 +132,37 @@ public class ConfigManager {
         // Messages
         pc.messages = (Map<String, Object>) root.getOrDefault("messages", Map.of());
 
+        // Quick action buttons under /reports
+        List<PluginConfig.QuickAction> defaults = PluginConfig.QuickAction.defaultActions();
+        List<PluginConfig.QuickAction> parsedActions = new ArrayList<>();
+        Object actionsRaw = root.get("reports-actions");
+        if (actionsRaw instanceof List<?> list) {
+            int idx = 0;
+            for (Object element : list) {
+                if (!(element instanceof Map<?,?> raw)) { idx++; continue; }
+                PluginConfig.QuickAction qa = idx < defaults.size()
+                        ? defaults.get(idx).copy()
+                        : new PluginConfig.QuickAction();
+                qa.command    = str(raw.get("command"), qa.command);
+                qa.label      = str(raw.get("label"), qa.label);
+                qa.hover      = str(raw.get("hover"), qa.hover);
+                qa.color      = str(raw.get("color"), qa.color);
+                qa.permission = str(raw.get("permission"), qa.permission);
+                qa.click      = str(raw.get("click"), qa.click);
+                qa.labelKey   = str(raw.get("label-key"), qa.labelKey);
+                qa.hoverKey   = str(raw.get("hover-key"), qa.hoverKey);
+                idx++;
+                if (qa.command == null || qa.command.isBlank()) continue;
+                parsedActions.add(qa);
+            }
+        }
+        if (parsedActions.isEmpty()) {
+            for (PluginConfig.QuickAction def : defaults) {
+                parsedActions.add(def.copy());
+            }
+        }
+        pc.reportsActions = parsedActions;
+
         // Dynamic report types
         Map<String, Object> rtypes = (Map<String, Object>) root.getOrDefault("report-types", Map.of());
         for (String key : rtypes.keySet()) {
@@ -205,5 +217,11 @@ public class ConfigManager {
         } catch (Exception ignored) {
             return def;
         }
+    }
+
+    private static String str(Object v, String def) {
+        if (v == null) return def;
+        String s = String.valueOf(v);
+        return s == null ? def : s;
     }
 }

@@ -4,16 +4,14 @@ import com.example.reportsystem.ReportSystem;
 import com.example.reportsystem.config.PluginConfig;
 import com.example.reportsystem.model.ChatMessage;
 import com.example.reportsystem.model.Report;
-import com.example.reportsystem.platform.ChatListener;
-import com.example.reportsystem.platform.PlatformPlayer;
+import com.example.reportsystem.util.Text;
+import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.connection.PostLoginEvent;
+import com.velocitypowered.api.event.player.PlayerChatEvent;
+import com.velocitypowered.api.proxy.Player;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Deque;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.time.Duration;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
@@ -22,7 +20,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  *  1) Rolling buffer for ALL players (so first report gets recent lines).
  *  2) Live-append for players under "watch" (anyone with an open report).
  */
-public class ChatLogService implements ChatListener {
+public class ChatLogService {
 
     // Rolling buffer defaults
     private static final int BUFFER_SECONDS = 120;        // last ~2 minutes
@@ -31,6 +29,7 @@ public class ChatLogService implements ChatListener {
     private final ReportSystem plugin;
     private final ReportManager mgr;
     private volatile PluginConfig config;
+
     /** players currently being "watched" to live-append into their open reports */
     private final Set<String> watchedPlayers = ConcurrentHashMap.newKeySet();
 
@@ -41,9 +40,9 @@ public class ChatLogService implements ChatListener {
         this.plugin = plugin;
         this.mgr = mgr;
         this.config = config;
+
         // Let the manager pull recent lines on new-report creation
         this.mgr.setChatLogService(this);
-        refreshWatchList();
     }
 
     public void setConfig(PluginConfig cfg) { this.config = cfg; }
@@ -58,21 +57,43 @@ public class ChatLogService implements ChatListener {
         }
     }
 
-    @Override
-    public void onPlayerLogin(PlatformPlayer player) {
+    @Subscribe
+    public void onLogin(PostLoginEvent e) {
         // Refresh on login so immediate chat from targets is captured going forward
         refreshWatchList();
+
+        Player player = e.getPlayer();
+        PluginConfig snapshot = this.config;
+        if (snapshot == null) return;
+
+        String notifyPerm = snapshot.notifyPermission == null ? "" : snapshot.notifyPermission.trim();
+        if (!notifyPerm.isEmpty() && !player.hasPermission(notifyPerm)) {
+            return;
+        }
+
+        long delayTicks = Math.max(0, snapshot.staffJoinSummaryDelayTicks);
+        UUID uuid = player.getUniqueId();
+        var builder = plugin.proxy().getScheduler().buildTask(plugin, () -> {
+            var current = plugin.proxy().getPlayer(uuid);
+            if (current.isEmpty()) return;
+            sendStaffSummary(current.get(), snapshot);
+        });
+        if (delayTicks > 0) {
+            builder.delay(Duration.ofMillis(delayTicks * 50L));
+        }
+        builder.schedule();
     }
 
-    @Override
-    public void onPlayerChat(PlatformPlayer player, String message) {
-        String name = player.username();
+    @Subscribe
+    public void onChat(PlayerChatEvent e) {
+        Player p = e.getPlayer();
+        String name = p.getUsername();
         String lowered = name.toLowerCase(Locale.ROOT);
-        String server = player.currentServerName().orElse("UNKNOWN");
+        String server = p.getCurrentServer().map(s -> s.getServerInfo().getName()).orElse("UNKNOWN");
         long now = System.currentTimeMillis();
 
         // Ensure ChatMessage(server) is truly a server name (not the username)
-        ChatMessage msg = new ChatMessage(now, name, server, message);
+        ChatMessage msg = new ChatMessage(now, name, server, e.getMessage());
 
         // 1) ALWAYS record in rolling buffer
         recordToBuffer(name, msg, now);
@@ -123,5 +144,43 @@ public class ChatLogService implements ChatListener {
         }
         out.sort(Comparator.comparingLong(m -> m.time));
         return out;
+    }
+
+    private void sendStaffSummary(Player player, PluginConfig snapshot) {
+        List<Report> open = mgr.getOpenReportsDescending();
+        int totalOpen = open.size();
+        String name = player.getUsername();
+        int mine = (int) open.stream()
+                .filter(r -> r.assignee != null && r.assignee.equalsIgnoreCase(name))
+                .count();
+        int closed = mgr.countClosedReports();
+
+        String openLabel = snapshot.msg("summary-open-label", "%count% open").replace("%count%", String.valueOf(totalOpen));
+        String claimedLabel = snapshot.msg("summary-claimed-label", "%count% claimed").replace("%count%", String.valueOf(mine));
+        String closedLabel = snapshot.msg("summary-closed-label", "%count% closed").replace("%count%", String.valueOf(closed));
+
+        String openTip = snapshot.msg("summary-open-tip", "View open reports");
+        String claimedTip = snapshot.msg("summary-claimed-tip", "View your claimed reports");
+        String closedTip = snapshot.msg("summary-closed-tip", "View closed reports");
+
+        String openSegment = summarySegment(openLabel, "/reports", openTip);
+        String claimedSegment = summarySegment(claimedLabel, "/reports claimed", claimedTip);
+        String closedSegment = summarySegment(closedLabel, "/reporthistory", closedTip);
+
+        String template = snapshot.msg("staff-join-summary",
+                "<gray>Reports summary:</gray> %open% <gray>•</gray> %claimed% <gray>•</gray> %closed%.");
+        String line = template
+                .replace("%open%", openSegment)
+                .replace("%claimed%", claimedSegment)
+                .replace("%mine%", claimedSegment)
+                .replace("%closed%", closedSegment);
+        Text.msg(player, line);
+    }
+
+    private static String summarySegment(String label, String command, String tip) {
+        String safeTip = Text.escape(tip == null ? "" : tip);
+        String safeLabel = Text.escape(label == null ? "" : label);
+        String safeCmd = Text.escape(command == null ? "" : command).replace("'", "\\'");
+        return "<hover:show_text:'" + safeTip + "'><click:run_command:'" + safeCmd + "'><white>" + safeLabel + "</white></click></hover>";
     }
 }
