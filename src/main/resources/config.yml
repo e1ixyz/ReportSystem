@@ -10,6 +10,20 @@ html-export-dir: "html-logs"             # Folder under the plugin data director
 reports-per-page: 10
 staff-join-summary-delay-ticks: 40          # Delay before sending staff summary on join (ticks)
 
+# ------------------------------------------------------------------------------------
+# STORAGE BACKEND
+# ------------------------------------------------------------------------------------
+storage:
+  mode: filesystem                 # filesystem or mysql
+  mysql:
+    host: "127.0.0.1"
+    port: 3306
+    database: "reportsystem"
+    username: "reports"
+    password: "password"
+    params: "?useSSL=false&characterEncoding=utf8"
+    table: "rs_reports"
+
 # Permissions
 staff-permission: "reportsystem.reports"          # Staff can use /reports, bypass cooldown, view protected web pages, etc.
 notify-permission: "reportsystem.notify"          # Staff who should receive ingame notifications about new reports
@@ -170,9 +184,49 @@ messages:
   summary-open-label: "%count% open"
   summary-claimed-label: "%count% claimed"
   summary-closed-label: "%count% closed"
+  summary-open-color: "<white>"
+  summary-claimed-color: "<white>"
+  summary-closed-color: "<white>"
   summary-open-tip: "View open reports"
   summary-claimed-tip: "View your claimed reports"
   summary-closed-tip: "View closed reports"
+  reports-unknown-category: "<red>Unknown category for type '%type%': %category%</red>"
+  reports-no-open: "<red>No such open report.</red>"
+  reports-claim-success: "<gray>You claimed report <white>#%id%</white>.</gray>"
+  reports-force-claim-required: "<red>Already claimed by %assignee% (need force-claim).</red>"
+  reports-claimed-empty: "<gray>You have no claimed reports.</gray>"
+  reports-claimed-header: "<gray>Your claimed reports:</gray>"
+  reports-claimed-entry: "%row%  <gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>"
+  reports-list-entry: "%row%  <gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>"
+  reports-chatlog-misconfigured: "<red>Web viewer is enabled but external/public base URL is not configured.</red>"
+  reports-chatlog-export-failed: "<red>Failed to export HTML chat log:</red> <gray>%error%</gray>"
+  reports-chat-header: "<gray>Chat for #%id% — page %page%/%pages% (%total% lines):</gray>"
+  reports-chat-line: "<gray>%line%</gray>"
+  reports-search-more: "<gray>…and %count% more.</gray>"
+  reports-priority-disabled: "<gray>Priority scoring is disabled; ordering falls back to <white>%tiebreaker%</white>.</gray>"
+  reports-priority-total: "<gray>Priority for <white>#%id%</white>: <green>%score%</green></gray>"
+  reports-priority-empty: "<gray>No contributing factors (all weights zero or disabled).</gray>"
+  reports-priority-tiebreaker: "<gray>Tie-breaker after priority: <white>%tiebreaker%</white>.</gray>"
+  reports-notify-summary: "<yellow>New report:</yellow> <white>#%id%</white> <gray>(%type% / %category%)</gray> <white>%target%</white> — <gray>%reason%</gray> %expand%"
+  reports-notify-expand-button: "<gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>"
+  reports-assign-self: "<gray>Assigned report <white>#%id%</white> to you.</gray>"
+  reports-unassign-self: "<gray>Unassigned report <white>#%id%</white>.</gray>"
+  reports-unassign-not-owner: "<red>You are not the assignee for #%id%.</red>"
+  error-players-only: "<red>Players only.</red>"
+  error-players-only-auth: "<red>Only players can request a login code.</red>"
+  error-players-only-logout: "<red>Only players can logout their sessions.</red>"
+  error-admin-permission: "<red>Admin permission required.</red>"
+  auth-code-failed: "<red>Unable to generate an auth code. Do you have permission?</red>"
+  auth-logoutall-success: "<gray>Revoked <white>%count%</white> web session(s).</gray>"
+  usage-reports-view: "<yellow>Usage:</yellow> /reports view <id>"
+  usage-reports-close: "<yellow>Usage:</yellow> /reports close <id>"
+  usage-reports-chat: "<yellow>Usage:</yellow> /reports chat <id> [page]"
+  usage-reports-assign: "<yellow>Usage:</yellow> /reports assign <id> <staff>"
+  usage-reports-unassign: "<yellow>Usage:</yellow> /reports unassign <id>"
+  usage-reports-search: "<yellow>Usage:</yellow> /reports search <query> [open|closed|all]</yellow>"
+  usage-reports-debug: "<yellow>Usage:</yellow> /reports debug <id>"
+  usage-reports-assigntome: "<yellow>Usage:</yellow> /reports assigntome <id>"
+  usage-reports-unassignme: "<yellow>Usage:</yellow> /reports unassignme <id>"
 
   # Report history (closed)
   history-page-empty: "No closed reports."

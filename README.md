@@ -9,6 +9,7 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
 - **Staff consoles** – `/reports` (open queue) and `/reporthistory` (closed queue) expose pagination, filters, quick actions (claim, assign, close, reopen) and MiniMessage-powered UI components.
 - **Priority scoring** – a multi-factor system ranks open reports using stack count, recency decay, severity mappings, captured evidence, assignment state, aging, and SLA breaches. `/reports debug <id>` explains the exact score breakdown.
 - **Persistence & reload safety** – each report is stored atomically as YAML under the plugin data directory, allowing restarts without data loss. `/reports reload` hot-reloads config and updates command instances.
+- **Flexible storage** – keep persistence on the filesystem or switch to the bundled MySQL backend for centralised storage across proxy instances.
 - **Notifications** – staff receive in-game alerts with hover/click actions, and optional Discord webhook delivery occurs asynchronously.
 - **Optional built-in web server** – serve HTML chat logs through a small HTTP server with cookie-based auth or via any external web stack.
 
@@ -36,6 +37,32 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
        base-path: "/"
      ```
      Staff can generate login codes via `/reports auth` if auth is enabled.
+   - Customize the `/reports` quick-action buttons (the row beneath the open report list) through the `reports-actions` array. Each entry supports `command`, `label`/`label-key`, `hover`/`hover-key`, and a MiniMessage `color` tag:
+     ```yaml
+     reports-actions:
+       - command: "/reports claim"
+         label-key: "button-claim-highest"
+         hover-key: "tip-claim-highest"
+         color: "<green>"
+     ```
+     You can reorder, remove, or add buttons as needed.
+   - Every chat message emitted by the plugin (errors, usage text, notifications, pagination banners, join summaries, etc.) is driven by the `messages:` block. Update entries such as `reports-notify-summary`, `reports-claimed-entry`, `usage-reports-*`, or `summary-*` to restyle output and change colours.
+   - Choose where reports are persisted via the `storage` block. Two backends ship with the plugin:
+     * `filesystem` (default) writes one YAML file per report under `plugins/ReportSystem/reports/`.
+     * `mysql` stores the same YAML payload inside a MySQL table, which is created automatically on startup. Example configuration:
+       ```yaml
+       storage:
+         mode: mysql
+         mysql:
+           host: "127.0.0.1"
+           port: 3306
+           database: "reportsystem"
+           username: "reports"
+           password: "sup3rsecret"
+           params: "?useSSL=false&characterEncoding=utf8"
+           table: "rs_reports"
+       ```
+       Switching between backends requires migrating existing data manually (copy the YAML payloads into the database or vice versa) before toggling the `mode`.
 
 4. **Permissions** (Velocity-style strings)
    - `reportsystem.reports` – access `/reports`, `/reporthistory`, bypass cooldown, and request auth codes.

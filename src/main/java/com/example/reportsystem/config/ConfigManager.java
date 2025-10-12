@@ -163,6 +163,18 @@ public class ConfigManager {
         }
         pc.reportsActions = parsedActions;
 
+        Map<String, Object> storage = (Map<String, Object>) root.getOrDefault("storage", Map.of());
+        pc.storage.mode = get(storage, "mode", pc.storage.mode);
+        Map<String, Object> mysql = (Map<String, Object>) storage.getOrDefault("mysql", Map.of());
+        PluginConfig.MysqlStorageConfig mysqlCfg = pc.storage.mysql;
+        mysqlCfg.host = get(mysql, "host", mysqlCfg.host);
+        mysqlCfg.port = get(mysql, "port", mysqlCfg.port);
+        mysqlCfg.database = get(mysql, "database", mysqlCfg.database);
+        mysqlCfg.username = get(mysql, "username", mysqlCfg.username);
+        mysqlCfg.password = get(mysql, "password", mysqlCfg.password);
+        mysqlCfg.params = get(mysql, "params", mysqlCfg.params);
+        mysqlCfg.table = get(mysql, "table", mysqlCfg.table);
+
         // Dynamic report types
         Map<String, Object> rtypes = (Map<String, Object>) root.getOrDefault("report-types", Map.of());
         for (String key : rtypes.keySet()) {

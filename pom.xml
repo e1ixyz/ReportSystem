@@ -56,6 +56,12 @@
       <version>2.2</version>
     </dependency>
 
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <version>8.4.0</version>
+    </dependency>
+
     <!-- Brigadier for compile-time (Velocity provides at runtime) -->
     <dependency>
       <groupId>com.mojang</groupId>
@@ -85,6 +91,10 @@
                 <relocation>
                   <pattern>org.yaml.snakeyaml</pattern>
                   <shadedPattern>com.example.reportsystem.shaded.snakeyaml</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.mysql.cj</pattern>
+                  <shadedPattern>com.example.reportsystem.shaded.mysql</shadedPattern>
                 </relocation>
               </relocations>
             </configuration>

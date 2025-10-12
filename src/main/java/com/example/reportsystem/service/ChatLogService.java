@@ -163,9 +163,13 @@ public class ChatLogService {
         String claimedTip = snapshot.msg("summary-claimed-tip", "View your claimed reports");
         String closedTip = snapshot.msg("summary-closed-tip", "View closed reports");
 
-        String openSegment = summarySegment(openLabel, "/reports", openTip);
-        String claimedSegment = summarySegment(claimedLabel, "/reports claimed", claimedTip);
-        String closedSegment = summarySegment(closedLabel, "/reporthistory", closedTip);
+        String openColor = snapshot.msg("summary-open-color", "<white>");
+        String claimedColor = snapshot.msg("summary-claimed-color", "<white>");
+        String closedColor = snapshot.msg("summary-closed-color", "<white>");
+
+        String openSegment = summarySegment(openLabel, "/reports", openTip, openColor);
+        String claimedSegment = summarySegment(claimedLabel, "/reports claimed", claimedTip, claimedColor);
+        String closedSegment = summarySegment(closedLabel, "/reporthistory", closedTip, closedColor);
 
         String template = snapshot.msg("staff-join-summary",
                 "<gray>Reports summary:</gray> %open% <gray>•</gray> %claimed% <gray>•</gray> %closed%.");
@@ -174,13 +178,34 @@ public class ChatLogService {
                 .replace("%claimed%", claimedSegment)
                 .replace("%mine%", claimedSegment)
                 .replace("%closed%", closedSegment);
-        Text.msg(player, line);
+        Text.msg(player, line + "\n");
     }
 
-    private static String summarySegment(String label, String command, String tip) {
+    private static String summarySegment(String label, String command, String tip, String colorTag) {
         String safeTip = Text.escape(tip == null ? "" : tip);
         String safeLabel = Text.escape(label == null ? "" : label);
         String safeCmd = Text.escape(command == null ? "" : command).replace("'", "\\'");
-        return "<hover:show_text:'" + safeTip + "'><click:run_command:'" + safeCmd + "'><white>" + safeLabel + "</white></click></hover>";
+        String color = normalizeColor(colorTag);
+        String close = closeTag(color);
+        return "<hover:show_text:'" + safeTip + "'><click:run_command:'" + safeCmd + "'>" + color + safeLabel + close + "</click></hover>";
+    }
+
+    private static String normalizeColor(String color) {
+        String trimmed = color == null ? "" : color.trim();
+        return trimmed.isEmpty() ? "<white>" : trimmed;
+    }
+
+    private static String closeTag(String color) {
+        if (color == null) return "";
+        String trimmed = color.trim();
+        if (!trimmed.startsWith("<") || !trimmed.endsWith(">")) return "";
+        String inner = trimmed.substring(1, trimmed.length() - 1);
+        if (inner.startsWith("/")) return "";
+        int colon = inner.indexOf(':');
+        if (colon > 0) inner = inner.substring(0, colon);
+        int space = inner.indexOf(' ');
+        if (space > 0) inner = inner.substring(0, space);
+        if (inner.isEmpty()) return "";
+        return "</" + inner + ">";
     }
 }

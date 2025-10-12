@@ -147,14 +147,27 @@ public class ReportCommand implements SimpleCommand {
         String expandLabel = config.msg("label-expand", "Expand");        // e.g., set to "^" in config messages if desired
         String expandTip   = config.msg("tip-expand", "Click to expand"); // hover tooltip
 
-        String summary = "<yellow>New report:</yellow> <white>#"+r.id+
-                "</white> <gray>("+r.typeDisplay+" / "+r.categoryDisplay+")</gray> " +
-                "<white>"+(isPlayerType ? r.reported : "—")+"</white> — <gray>"+Text.escape(reason)+
-                "</gray>  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(expandTip)+"'><click:run_command:'/reports view "+r.id+"'>"+Text.escape(expandLabel)+"</click></hover></aqua><gray>]</gray>";
+        String expandTemplate = config.msg("reports-notify-expand-button",
+                "<gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>");
+        String expandSegment = expandTemplate
+                .replace("%expand_tip%", Text.escape(expandTip))
+                .replace("%expand_label%", Text.escape(expandLabel))
+                .replace("%id%", String.valueOf(r.id));
+
+        String summaryTemplate = config.msg("reports-notify-summary",
+                "<yellow>New report:</yellow> <white>#%id%</white> <gray>(%type% / %category%)</gray> " +
+                        "<white>%target%</white> — <gray>%reason%</gray> %expand%");
+        String summary = summaryTemplate
+                .replace("%id%", String.valueOf(r.id))
+                .replace("%type%", Text.escape(r.typeDisplay))
+                .replace("%category%", Text.escape(r.categoryDisplay))
+                .replace("%target%", Text.escape(isPlayerType ? r.reported : "—"))
+                .replace("%reason%", Text.escape(reason))
+                .replace("%expand%", expandSegment);
 
         plugin.proxy().getAllPlayers().forEach(pl -> {
             if (pl.hasPermission(notifyPerm)) {
-                Text.msg(pl, summary);
+                Text.msg(pl, summary + "\n");
             }
         });
 

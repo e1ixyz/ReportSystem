@@ -70,7 +70,11 @@ public class ReportsCommand implements SimpleCommand {
                 if (isKnownCategoryFor(typeFilter, maybeCat)) {
                     categoryFilter = maybeCat;
                 } else {
-                    Text.msg(src, "<red>Unknown category for type '"+typeFilter+"': "+maybeCat+"</red>");
+                    String template = msg("reports-unknown-category",
+                            "<red>Unknown category for type '%type%': %category%</red>");
+                    Text.msg(src, template
+                            .replace("%type%", typeFilter)
+                            .replace("%category%", maybeCat));
                     return;
                 }
             }
@@ -86,7 +90,7 @@ public class ReportsCommand implements SimpleCommand {
             }
 
             case "view" -> {
-                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports view <id>"); return; }
+                if (args.length < 2) { send(src, "usage-reports-view", "<yellow>Usage:</yellow> /reports view <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null || !r.isOpen()) {
@@ -97,21 +101,24 @@ public class ReportsCommand implements SimpleCommand {
             }
 
             case "claim" -> {
-                if (!(src instanceof Player p)) { Text.msg(src, "<red>Players only.</red>"); return; }
+                if (!(src instanceof Player p)) { send(src, "error-players-only", "<red>Players only.</red>"); return; }
 
                 if (args.length >= 2) {
                     long id = parseLong(args[1], -1);
                     Report r = mgr.get(id);
-                    if (r == null || !r.isOpen()) { Text.msg(src, "<red>No such open report.</red>"); return; }
+                    if (r == null || !r.isOpen()) { send(src, "reports-no-open", "<red>No such open report.</red>"); return; }
 
                     if (r.assignee != null && !r.assignee.isBlank() && !p.getUsername().equalsIgnoreCase(r.assignee)) {
                         if (!src.hasPermission(config.forceClaimPermission) && !src.hasPermission(config.adminPermission)) {
-                            Text.msg(src, "<red>Already claimed by "+r.assignee+" (need force-claim).</red>");
+                            String msgForce = msg("reports-force-claim-required", "<red>Already claimed by %assignee% (need force-claim).</red>")
+                                    .replace("%assignee%", Text.escape(r.assignee));
+                            Text.msg(src, msgForce);
                             return;
                         }
                     }
                     mgr.assign(r.id, p.getUsername());
-                    Text.msg(src, "<gray>You claimed report <white>#"+r.id+"</white>.</gray>");
+                    Text.msg(src, msg("reports-claim-success", "<gray>You claimed report <white>#%id%</white>.</gray>")
+                            .replace("%id%", String.valueOf(r.id)));
                 } else {
                     var open = mgr.getOpenReportsDescending();
                     if (open.isEmpty()) { Text.msg(src, config.msg("claim-none", "<gray>No claimable reports available.</gray>")); return; }
@@ -146,28 +153,37 @@ public class ReportsCommand implements SimpleCommand {
                     }
 
                     mgr.assign(target.id, p.getUsername());
-                    Text.msg(src, "<gray>You claimed report <white>#"+target.id+"</white>.</gray>");
+                    String claimMsg = msg("reports-claim-success", "<gray>You claimed report <white>#%id%</white>.</gray>")
+                            .replace("%id%", String.valueOf(target.id));
+                    Text.msg(src, claimMsg);
                 }
             }
 
             case "claimed" -> {
-                if (!(src instanceof Player p)) { Text.msg(src, "<red>Players only.</red>"); return; }
+                if (!(src instanceof Player p)) { send(src, "error-players-only", "<red>Players only.</red>"); return; }
                 var mine = mgr.getOpenReportsDescending().stream()
                         .filter(r -> r.assignee != null && r.assignee.equalsIgnoreCase(p.getUsername()))
                         .toList();
                 if (mine.isEmpty()) {
-                    Text.msg(src, "<gray>You have no claimed reports.</gray>");
+                    send(src, "reports-claimed-empty", "<gray>You have no claimed reports.</gray>");
                 } else {
-                    Text.msg(src, "<gray>Your claimed reports:</gray>");
+                    Text.msg(src, msg("reports-claimed-header", "<gray>Your claimed reports:</gray>"));
                     String tip = expandTip();
+                    String entryTemplate = msg("reports-claimed-entry",
+                            "%row%  <gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>");
                     for (Report r : mine) {
-                        Text.msg(src, fmtListLine(r) + "  <gray>[</gray><aqua><hover:show_text:'" + Text.escape(tip) + "'><click:run_command:'/reports view " + r.id + "'>" + expandLabel() + "</click></hover></aqua><gray>]</gray>");
+                        String entry = entryTemplate
+                                .replace("%row%", fmtListLine(r))
+                                .replace("%id%", String.valueOf(r.id))
+                                .replace("%expand_tip%", Text.escape(tip))
+                                .replace("%expand_label%", Text.escape(expandLabel()));
+                        Text.msg(src, entry);
                     }
                 }
             }
 
             case "close" -> {
-                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports close <id>"); return; }
+                if (args.length < 2) { send(src, "usage-reports-close", "<yellow>Usage:</yellow> /reports close <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) {
@@ -183,7 +199,7 @@ public class ReportsCommand implements SimpleCommand {
             }
 
             case "chat" -> {
-                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports chat <id> [page]"); return; }
+                if (args.length < 2) { send(src, "usage-reports-chat", "<yellow>Usage:</yellow> /reports chat <id> [page]"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) {
@@ -202,13 +218,14 @@ public class ReportsCommand implements SimpleCommand {
                         new HtmlExporter(plugin, config).export(r);
                         String link = buildPublicLinkFor(r);
                         if (link == null || link.isBlank()) {
-                            Text.msg(src, "<red>Web viewer is enabled but external/public base URL is not configured.</red>");
+                            send(src, "reports-chatlog-misconfigured", "<red>Web viewer is enabled but external/public base URL is not configured.</red>");
                             return;
                         }
                         String tip = config.msg("tip-open-browser", "Open in browser");
                         Text.msg(src, "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + link + "'>"+config.msg("open-chatlog-label","Open chat log")+"</click></hover></aqua><gray>]</gray>");
                     } catch (Exception ex) {
-                        Text.msg(src, "<red>Failed to export HTML chat log:</red> <gray>"+Text.escape(ex.getMessage())+"</gray>");
+                        String template = msg("reports-chatlog-export-failed", "<red>Failed to export HTML chat log:</red> <gray>%error%</gray>");
+                        Text.msg(src, template.replace("%error%", Text.escape(ex.getMessage())));
                     }
                 } else {
                     // Paginated inline echo
@@ -221,7 +238,7 @@ public class ReportsCommand implements SimpleCommand {
             }
 
             case "assign" -> {
-                if (args.length < 3) { Text.msg(src, "<yellow>Usage:</yellow> /reports assign <id> <staff>"); return; }
+                if (args.length < 3) { send(src, "usage-reports-assign", "<yellow>Usage:</yellow> /reports assign <id> <staff>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) {
@@ -232,7 +249,8 @@ public class ReportsCommand implements SimpleCommand {
 
                 if (r.assignee != null && !r.assignee.isBlank() && !staff.equalsIgnoreCase(r.assignee)) {
                     if (!src.hasPermission(config.forceClaimPermission) && !src.hasPermission(config.adminPermission)) {
-                        Text.msg(src, "<red>Already claimed by "+r.assignee+" (need force-claim).</red>");
+                        Text.msg(src, msg("reports-force-claim-required", "<red>Already claimed by %assignee% (need force-claim).</red>")
+                                .replace("%assignee%", Text.escape(r.assignee)));
                         return;
                     }
                 }
@@ -247,7 +265,7 @@ public class ReportsCommand implements SimpleCommand {
             }
 
             case "unassign" -> {
-                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports unassign <id>"); return; }
+                if (args.length < 2) { send(src, "usage-reports-unassign", "<yellow>Usage:</yellow> /reports unassign <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) {
@@ -267,7 +285,7 @@ public class ReportsCommand implements SimpleCommand {
             }
 
             case "search" -> {
-                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports search <query> [open|closed|all]</yellow>"); return; }
+                if (args.length < 2) { send(src, "usage-reports-search", "<yellow>Usage:</yellow> /reports search <query> [open|closed|all]</yellow>"); return; }
                 String scope = args.length >= 3 ? args[2] : "open";
                 String query = args[1];
                 var results = mgr.search(query, scope);
@@ -276,18 +294,28 @@ public class ReportsCommand implements SimpleCommand {
                         .replace("%query%", query).replace("%scope%", scope));
                 int shown = 0, limit = Math.min(30, results.size());
                 String tip = expandTip();
+                String entryTemplate = msg("reports-list-entry",
+                        "%row%  <gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>");
+                String expandLabel = expandLabel();
                 for (int i=0;i<limit;i++) {
                     Report r = results.get(i);
-                    String line = fmtListLine(r)
-                            + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:run_command:'/reports view "+r.id+"'>"+expandLabel()+"</click></hover></aqua><gray>]</gray>";
-                    Text.msg(src, line);
+                    String entry = entryTemplate
+                            .replace("%row%", fmtListLine(r))
+                            .replace("%id%", String.valueOf(r.id))
+                            .replace("%expand_tip%", Text.escape(tip))
+                            .replace("%expand_label%", Text.escape(expandLabel));
+                    Text.msg(src, entry);
                     shown++;
                 }
-                if (results.size() > shown) Text.msg(src, "<gray>…and "+(results.size()-shown)+" more.</gray>");
+                if (results.size() > shown) {
+                    String extra = msg("reports-search-more", "<gray>…and %count% more.</gray>")
+                            .replace("%count%", String.valueOf(results.size() - shown));
+                    Text.msg(src, extra);
+                }
             }
 
             case "debug" -> {
-                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports debug <id>"); return; }
+                if (args.length < 2) { send(src, "usage-reports-debug", "<yellow>Usage:</yellow> /reports debug <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null || !r.isOpen()) {
@@ -299,7 +327,7 @@ public class ReportsCommand implements SimpleCommand {
 
             case "reload" -> {
                 if (!src.hasPermission(config.adminPermission)) {
-                    Text.msg(src, "<red>Admin permission required.</red>");
+                    send(src, "error-admin-permission", "<red>Admin permission required.</red>");
                     return;
                 }
                 boolean broadcasted = false;
@@ -317,12 +345,12 @@ public class ReportsCommand implements SimpleCommand {
 
             case "auth" -> {
                 if (!(src instanceof Player p)) {
-                    Text.msg(src, "<red>Only players can request a login code.</red>");
+                    send(src, "error-players-only-auth", "<red>Only players can request a login code.</red>");
                     return;
                 }
                 var code = auth.issueCodeFor(p);
                 if (code == null) {
-                    Text.msg(src, "<red>Unable to generate an auth code. Do you have permission?</red>");
+                    send(src, "auth-code-failed", "<red>Unable to generate an auth code. Do you have permission?</red>");
                     return;
                 }
                 Text.msg(src,
@@ -341,37 +369,41 @@ public class ReportsCommand implements SimpleCommand {
 
             case "logoutall" -> {
                 if (!src.hasPermission(config.adminPermission)) {
-                    Text.msg(src, "<red>Admin permission required.</red>");
+                    send(src, "error-admin-permission", "<red>Admin permission required.</red>");
                     return;
                 }
                 if (!(src instanceof Player p)) {
-                    Text.msg(src, "<red>Only players can logout their sessions.</red>");
+                    send(src, "error-players-only-logout", "<red>Only players can logout their sessions.</red>");
                     return;
                 }
                 int n = auth.revokeAllFor(p.getUniqueId());
-                Text.msg(src, "<gray>Revoked <white>" + n + "</white> web session(s).</gray>");
+                Text.msg(src, msg("auth-logoutall-success", "<gray>Revoked <white>%count%</white> web session(s).</gray>")
+                        .replace("%count%", String.valueOf(n)));
             }
 
             case "assigntome" -> {
-                if (!(src instanceof Player p)) { Text.msg(src, "<red>Players only.</red>"); return; }
-                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports assigntome <id>"); return; }
+                if (!(src instanceof Player p)) { send(src, "error-players-only", "<red>Players only.</red>"); return; }
+                if (args.length < 2) { send(src, "usage-reports-assigntome", "<yellow>Usage:</yellow> /reports assigntome <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
 
                 if (r.assignee != null && !r.assignee.isBlank() && !p.getUsername().equalsIgnoreCase(r.assignee)) {
                     if (!src.hasPermission(config.forceClaimPermission) && !src.hasPermission(config.adminPermission)) {
-                        Text.msg(src, "<red>Already claimed by "+r.assignee+" (need force-claim).</red>");
+                        String msg = msg("reports-force-claim-required", "<red>Already claimed by %assignee% (need force-claim).</red>")
+                                .replace("%assignee%", Text.escape(r.assignee));
+                        Text.msg(src, msg);
                         return;
                     }
                 }
                 mgr.assign(id, p.getUsername());
-                Text.msg(src, "<gray>Assigned report <white>#"+id+"</white> to you.</gray>");
+                Text.msg(src, msg("reports-assign-self", "<gray>Assigned report <white>#%id%</white> to you.</gray>")
+                        .replace("%id%", String.valueOf(id)));
             }
 
             case "unassignme" -> {
-                if (!(src instanceof Player p)) { Text.msg(src, "<red>Players only.</red>"); return; }
-                if (args.length < 2) { Text.msg(src, "<yellow>Usage:</yellow> /reports unassignme <id>"); return; }
+                if (!(src instanceof Player p)) { send(src, "error-players-only", "<red>Players only.</red>"); return; }
+                if (args.length < 2) { send(src, "usage-reports-unassignme", "<yellow>Usage:</yellow> /reports unassignme <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
@@ -380,11 +412,13 @@ public class ReportsCommand implements SimpleCommand {
                     return;
                 }
                 if (!p.getUsername().equalsIgnoreCase(r.assignee)) {
-                    Text.msg(src, "<red>You are not the assignee for #"+id+".</red>");
+                    Text.msg(src, msg("reports-unassign-not-owner", "<red>You are not the assignee for #%id%.</red>")
+                            .replace("%id%", String.valueOf(id)));
                     return;
                 }
                 mgr.unassign(id);
-                Text.msg(src, "<gray>Unassigned report <white>#"+id+"</white>.</gray>");
+                Text.msg(src, msg("reports-unassign-self", "<gray>Unassigned report <white>#%id%</white>.</gray>")
+                        .replace("%id%", String.valueOf(id)));
             }
 
             default -> showPage(src, 1, null, null);
@@ -510,10 +544,16 @@ public class ReportsCommand implements SimpleCommand {
         Text.msg(src, header);
 
         String tip = expandTip();
+        String entryTemplate = msg("reports-list-entry",
+                "%row%  <gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>");
+        String expandLabel = expandLabel();
         for (Report r : Pagination.paginate(open, per, page)) {
-            String line = fmtListLine(r)
-                    + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:run_command:'/reports view "+r.id+"'>"+expandLabel()+"</click></hover></aqua><gray>]</gray>";
-            Text.msg(src, line);
+            String entry = entryTemplate
+                    .replace("%row%", fmtListLine(r))
+                    .replace("%id%", String.valueOf(r.id))
+                    .replace("%expand_tip%", Text.escape(tip))
+                    .replace("%expand_label%", Text.escape(expandLabel));
+            Text.msg(src, entry);
         }
 
         if (pages > 1) {
@@ -728,19 +768,23 @@ public class ReportsCommand implements SimpleCommand {
         page = Math.min(Math.max(1, page), pages);
 
         int start = (page - 1) * per;
-        int end = Math.min(start + per, total);
+                int end = Math.min(start + per, total);
 
-        Text.msg(src, "<gray>Chat for #"+r.id+" — page "+page+"/"+pages+" ("+total+" lines):</gray>");
-        for (int i = start; i < end; i++) {
-            var m = r.chat.get(i);
-            String raw = "["+ TimeUtil.formatTime(m.time)+"] "+m.player+"@"+m.server+": "+m.message;
-            String safe = Text.escape(raw);
-            if (safe.length() > config.previewLineMaxChars) {
-                int lim = Math.max(0, config.previewLineMaxChars - 1);
-                safe = safe.substring(0, lim) + "…";
-            }
-            Text.msg(src, "<gray>"+ safe +"</gray>");
-        }
+                Text.msg(src, msg("reports-chat-header", "<gray>Chat for #%id% — page %page%/%pages% (%total% lines):</gray>")
+                        .replace("%id%", String.valueOf(r.id))
+                        .replace("%page%", String.valueOf(page))
+                        .replace("%pages%", String.valueOf(pages))
+                        .replace("%total%", String.valueOf(total)));
+                for (int i = start; i < end; i++) {
+                    var m = r.chat.get(i);
+                    String raw = "["+ TimeUtil.formatTime(m.time)+"] "+m.player+"@"+m.server+": "+m.message;
+                    String safe = Text.escape(raw);
+                    if (safe.length() > config.previewLineMaxChars) {
+                        int lim = Math.max(0, config.previewLineMaxChars - 1);
+                        safe = safe.substring(0, lim) + "…";
+                    }
+                    Text.msg(src, msg("reports-chat-line", "<gray>%line%</gray>").replace("%line%", safe));
+                }
 
         if (pages > 1) {
             String prevTip = config.msg("tip-prev", "Previous page");
@@ -796,16 +840,27 @@ public class ReportsCommand implements SimpleCommand {
                 .toList();
     }
 
+    private String msg(String key, String def) {
+        return config.msg(key, def);
+    }
+
+    private void send(CommandSource src, String key, String def) {
+        Text.msg(src, msg(key, def));
+    }
+
     private void showPriorityBreakdown(CommandSource src, Report r) {
         var breakdown = mgr.debugPriority(r);
         if (!breakdown.enabled) {
-            Text.msg(src, "<gray>Priority scoring is disabled; ordering falls back to <white>" + Text.escape(breakdown.tieBreaker) + "</white>.</gray>");
+            Text.msg(src, msg("reports-priority-disabled", "<gray>Priority scoring is disabled; ordering falls back to <white>%tiebreaker%</white>.</gray>")
+                    .replace("%tiebreaker%", Text.escape(breakdown.tieBreaker)));
             return;
         }
 
-        Text.msg(src, "<gray>Priority for <white>#" + r.id + "</white>: <green>" + fmt(breakdown.total) + "</green></gray>");
+        Text.msg(src, msg("reports-priority-total", "<gray>Priority for <white>#%id%</white>: <green>%score%</green></gray>")
+                .replace("%id%", String.valueOf(r.id))
+                .replace("%score%", fmt(breakdown.total)));
         if (breakdown.components.isEmpty()) {
-            Text.msg(src, "<gray>No contributing factors (all weights zero or disabled).</gray>");
+            Text.msg(src, msg("reports-priority-empty", "<gray>No contributing factors (all weights zero or disabled).</gray>"));
         } else {
             for (var comp : breakdown.components) {
                 String line = "<gray>- " + Text.escape(comp.name) + ":</gray> weight <white>" + fmt(comp.weight)
@@ -814,7 +869,8 @@ public class ReportsCommand implements SimpleCommand {
                 Text.msg(src, line);
             }
         }
-        Text.msg(src, "<gray>Tie-breaker after priority: <white>" + Text.escape(breakdown.tieBreaker) + "</white>.</gray>");
+        Text.msg(src, msg("reports-priority-tiebreaker", "<gray>Tie-breaker after priority: <white>%tiebreaker%</white>.</gray>")
+                .replace("%tiebreaker%", Text.escape(breakdown.tieBreaker)));
     }
 
     /** Configurable label for EXPAND button; defaults to "EXPAND". */

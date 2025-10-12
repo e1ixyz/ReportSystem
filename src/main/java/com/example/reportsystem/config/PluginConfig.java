@@ -68,6 +68,7 @@ public class PluginConfig {
     public Map<String, Object> messages = new LinkedHashMap<>();
     public Map<String, ReportTypeDef> reportTypes = new LinkedHashMap<>();
     public List<QuickAction> reportsActions = new ArrayList<>(QuickAction.defaultActions());
+    public StorageConfig storage = new StorageConfig();
 
     // Helpers
     public String msg(String key, String def) {
@@ -154,6 +155,21 @@ public class PluginConfig {
 
         /** SLA targets in minutes per "typeId/categoryId" key. */
         public Map<String, Integer> slaMinutes = new LinkedHashMap<>();
+    }
+
+    public static class StorageConfig {
+        public String mode = "filesystem"; // filesystem or mysql
+        public MysqlStorageConfig mysql = new MysqlStorageConfig();
+    }
+
+    public static class MysqlStorageConfig {
+        public String host = "127.0.0.1";
+        public int port = 3306;
+        public String database = "reportsystem";
+        public String username = "reports";
+        public String password = "password";
+        public String params = "?useSSL=false&characterEncoding=utf8";
+        public String table = "rs_reports";
     }
 
     /* -------------------- minimal loader stubs -------------------- */

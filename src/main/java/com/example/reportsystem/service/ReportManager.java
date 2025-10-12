@@ -6,14 +6,14 @@ import com.example.reportsystem.model.ChatMessage;
 import com.example.reportsystem.model.Report;
 import com.example.reportsystem.model.ReportStatus;
 import com.example.reportsystem.model.ReportType;
+import com.example.reportsystem.storage.FileReportStorage;
+import com.example.reportsystem.storage.MysqlReportStorage;
+import com.example.reportsystem.storage.ReportStorage;
+import com.example.reportsystem.storage.StoredReportPayload;
 import org.slf4j.Logger;
 import org.yaml.snakeyaml.Yaml;
 
-import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
  * ReportManager
  *
  * - Thread-safe in-memory store of reports
- * - Persists each report as YAML: <dataDir>/reports/<id>.yml
+ * - Persists each report as YAML via pluggable backends (filesystem or MySQL)
  * - Stacking by (reported + type + category) within config.stackWindowSeconds
  * - Priority sorting for open reports: higher count first, then time (config.tieBreaker)
  * - Closed reports ordering tracked via internal closedAt map (Report has no closedAt field)
@@ -38,7 +38,7 @@ public class ReportManager {
 
     private final ReportSystem plugin;
     private final Logger log;
-    private final Path storeDir;
+    private final ReportStorage storage;
     private volatile PluginConfig config;
 
     private volatile ChatLogService chat; // optional; injected by ChatLogService constructor
@@ -56,17 +56,13 @@ public class ReportManager {
     public ReportManager(ReportSystem plugin, Path dataDir, PluginConfig config) {
         this.plugin = plugin;
         this.log = plugin.logger();
-        this.storeDir = dataDir.resolve("reports");
         this.config = config;
+        this.storage = createStorage(dataDir, config);
         try {
-            Files.createDirectories(storeDir);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to create reports dir: " + storeDir, e);
-        }
-        try {
+            storage.init();
             loadAll();
         } catch (Exception e) {
-            log.warn("Failed to load reports: {}", e.toString());
+            log.warn("Failed to initialise {} storage: {}", storage.backendKey(), e.toString());
         }
     }
 
@@ -76,6 +72,11 @@ public class ReportManager {
 
     public void setConfig(PluginConfig cfg) {
         this.config = cfg;
+        String requested = normalizeStorageMode(cfg);
+        if (!storage.backendKey().equalsIgnoreCase(requested)) {
+            log.warn("Storage backend changes at runtime are not supported (current={}, requested={}). Keeping {} backend.",
+                    storage.backendKey(), requested, storage.backendKey());
+        }
     }
 
     /** Called by ChatLogService so we can pull recent lines on new report creation. */
@@ -340,32 +341,28 @@ public class ReportManager {
               PERSISTENCE
        ========================= */
 
-    private void loadAll() throws IOException {
-        if (!Files.isDirectory(storeDir)) return;
-
+    private void loadAll() throws Exception {
         long maxId = 0;
-        try (DirectoryStream<Path> ds = Files.newDirectoryStream(storeDir, "*.yml")) {
-            for (Path p : ds) {
-                try (Reader reader = Files.newBufferedReader(p, StandardCharsets.UTF_8)) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> m = yaml.load(reader);
-                    if (m == null) continue;
-                    Report r = fromMap(m);
-                    if (r != null) {
-                        reports.put(r.id, r);
-                        maxId = Math.max(maxId, r.id);
-                        // restore closedAt (stored in file) and lastUpdate
-                        long ca = getLong(m.get("closedAt"), 0L);
-                        if (ca > 0) closedAtById.put(r.id, ca);
-                        lastUpdateMillis.put(r.id, Math.max(r.timestamp, ca));
-                    }
-                } catch (Exception ex) {
-                    log.warn("Failed to load {}: {}", p.getFileName(), ex.toString());
+        List<StoredReportPayload> payloads = storage.loadAll();
+        for (StoredReportPayload payload : payloads) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> m = yaml.load(payload.yaml());
+                if (m == null) continue;
+                Report r = fromMap(m);
+                if (r != null) {
+                    reports.put(r.id, r);
+                    maxId = Math.max(maxId, r.id);
+                    long ca = getLong(m.get("closedAt"), 0L);
+                    if (ca > 0) closedAtById.put(r.id, ca);
+                    lastUpdateMillis.put(r.id, Math.max(r.timestamp, ca));
                 }
+            } catch (Exception ex) {
+                log.warn("Failed to decode report #{}: {}", payload.id(), ex.toString());
             }
         }
         nextId.set(Math.max(nextId.get(), maxId + 1));
-        log.info("Loaded {} reports (nextId={})", reports.size(), nextId.get());
+        log.info("Loaded {} reports (nextId={}) via {} storage", reports.size(), nextId.get(), storage.backendKey());
     }
 
     private void trySave(Report r) {
@@ -373,15 +370,10 @@ public class ReportManager {
         catch (Exception e) { log.warn("Failed to save report #{}: {}", r.id, e.toString()); }
     }
 
-    private void saveOne(Report r) throws IOException {
-        Path out = storeDir.resolve(r.id + ".yml");
+    private void saveOne(Report r) throws Exception {
         Map<String, Object> m = toMap(r);
-        Path tmp = out.resolveSibling(out.getFileName() + ".tmp");
-        try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-            yaml.dump(m, w);
-        }
-        Files.move(tmp, out, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        String yamlPayload = yaml.dump(m);
+        storage.save(r.id, yamlPayload);
     }
 
     private Map<String, Object> toMap(Report r) {
@@ -467,6 +459,22 @@ public class ReportManager {
         if (o == null) return def;
         if (o instanceof Number n) return n.longValue();
         try { return Long.parseLong(String.valueOf(o)); } catch (Exception e) { return def; }
+    }
+
+    private ReportStorage createStorage(Path dataDir, PluginConfig cfg) {
+        String mode = normalizeStorageMode(cfg);
+        if ("mysql".equals(mode)) {
+            return new MysqlReportStorage(cfg.storage.mysql, log);
+        }
+        Path dir = dataDir.resolve("reports");
+        return new FileReportStorage(dir, log);
+    }
+
+    private String normalizeStorageMode(PluginConfig cfg) {
+        if (cfg == null || cfg.storage == null || cfg.storage.mode == null) {
+            return "filesystem";
+        }
+        return cfg.storage.mode.trim().toLowerCase(Locale.ROOT);
     }
 
     /* =========================
