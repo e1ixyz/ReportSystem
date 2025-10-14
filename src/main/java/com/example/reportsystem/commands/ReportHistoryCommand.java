@@ -26,7 +26,7 @@ import java.util.Locale;
  *   - /reporthistory reopen <id>     : reopen a closed report
  *
  * Visuals aligned with /reports:
- *   - List line: #id (Type/Category) <target> [assignee] [server]  [^ Expand] [Reopen]
+ *   - List line: #id (Type/Category) <target> [assignee] [server]  [^ Expand]
  *   - target/assignee/server have hover tooltips.
  *   - Expand label uses messages.label-expand (e.g., "^")
  */
@@ -176,12 +176,10 @@ public class ReportHistoryCommand implements SimpleCommand {
                 .replace("%pages%", String.valueOf(pages)));
 
         String tipExpand = config.msg("tip-expand", "Click to expand");
-        String tipReopen = config.msg("tip-reopen", "Reopen this report");
 
         for (Report r : Pagination.paginate(closed, per, page)) {
             String line = fmtListLineClosed(r)
-                    + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipExpand)+"'><click:run_command:'/reporthistory view "+r.id+"'>"+expandLabel()+"</click></hover></aqua><gray>]</gray>"
-                    + " <gray>[</gray><green><hover:show_text:'"+Text.escape(tipReopen)+"'><click:run_command:'/reporthistory reopen "+r.id+"'>Reopen</click></hover></green><gray>]</gray>";
+                    + "  <gray>[</gray><aqua><hover:show_text:'"+Text.escape(tipExpand)+"'><click:run_command:'/reporthistory view "+r.id+"'>"+expandLabel()+"</click></hover></aqua><gray>]</gray>";
             Text.msg(src, line);
         }
 

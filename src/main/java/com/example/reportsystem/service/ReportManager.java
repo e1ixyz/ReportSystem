@@ -45,6 +45,7 @@ public class ReportManager {
 
     private final Map<Long, Report> reports = new ConcurrentHashMap<>();
     private final AtomicLong nextId = new AtomicLong(1);
+    private final ConcurrentHashMap<String, Set<Long>> openReportsByReported = new ConcurrentHashMap<>();
 
     /** last "activity" timestamp we use for stacking-window checks */
     private final Map<Long, Long> lastUpdateMillis = new ConcurrentHashMap<>();
@@ -143,10 +144,19 @@ public class ReportManager {
     public List<Report> getOpenReportsFor(String reportedName) {
         if (reportedName == null || reportedName.isBlank()) return List.of();
         String needle = reportedName.toLowerCase(Locale.ROOT);
-        return reports.values().stream()
-                .filter(Report::isOpen)
-                .filter(r -> r.reported != null && r.reported.toLowerCase(Locale.ROOT).equals(needle))
-                .collect(Collectors.toList());
+        Set<Long> ids = openReportsByReported.get(needle);
+        if (ids == null || ids.isEmpty()) return List.of();
+        List<Report> out = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            if (id == null) continue;
+            Report r = reports.get(id);
+            if (r == null || !r.isOpen()) continue;
+            if (r.reported == null) continue;
+            if (r.reported.toLowerCase(Locale.ROOT).equals(needle)) {
+                out.add(r);
+            }
+        }
+        return out;
     }
 
     /** Closed reports newest-closed first (tracked via closedAtById; fallback to timestamp). */
@@ -230,6 +240,7 @@ public class ReportManager {
         reports.put(id, r);
         lastUpdateMillis.put(id, now);
         closedAtById.remove(id);
+        indexOpenReport(r);
         trySave(r);
         return r;
     }
@@ -275,6 +286,9 @@ public class ReportManager {
     public void close(long id) {
         Report r = reports.get(id);
         if (r == null) return;
+        if (r.isOpen()) {
+            removeIndexedReport(r);
+        }
         r.status = ReportStatus.CLOSED;
         long now = System.currentTimeMillis();
         closedAtById.put(id, now);
@@ -287,6 +301,7 @@ public class ReportManager {
         r.status = ReportStatus.OPEN;
         closedAtById.remove(id);
         lastUpdateMillis.put(id, System.currentTimeMillis());
+        indexOpenReport(r);
         trySave(r);
         return true;
     }
@@ -297,6 +312,32 @@ public class ReportManager {
     /* =========================
                INTERNALS
        ========================= */
+
+    private void indexOpenReport(Report r) {
+        if (r == null || !r.isOpen()) return;
+        String key = keyForReported(r.reported);
+        if (key == null) return;
+        openReportsByReported
+                .computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
+                .add(r.id);
+    }
+
+    private void removeIndexedReport(Report r) {
+        String key = keyForReported(r.reported);
+        if (key == null) return;
+        Set<Long> ids = openReportsByReported.get(key);
+        if (ids == null) return;
+        ids.remove(r.id);
+        if (ids.isEmpty()) {
+            openReportsByReported.remove(key, ids);
+        }
+    }
+
+    private String keyForReported(String name) {
+        if (name == null) return null;
+        String key = name.trim().toLowerCase(Locale.ROOT);
+        return key.isEmpty() ? null : key;
+    }
 
     private String safeStr(String s) {
         return s == null ? "" : s.trim();
@@ -318,11 +359,30 @@ public class ReportManager {
 
     private Report findStackTarget(String reported, ReportType rt) {
         String target = reported == null ? "" : reported;
-        List<Report> candidates = reports.values().stream()
-                .filter(Report::isOpen)
-                .filter(r -> equalsCI(r.reported, target))
-                .filter(r -> r.typeId.equalsIgnoreCase(rt.typeId) && r.categoryId.equalsIgnoreCase(rt.categoryId))
-                .collect(Collectors.toList());
+        String key = keyForReported(target);
+        List<Report> candidates;
+        if (key != null) {
+            Set<Long> ids = openReportsByReported.get(key);
+            if (ids == null || ids.isEmpty()) {
+                return null;
+            }
+            candidates = new ArrayList<>(ids.size());
+            for (Long id : ids) {
+                if (id == null) continue;
+                Report candidate = reports.get(id);
+                if (candidate == null || !candidate.isOpen()) continue;
+                if (!candidate.typeId.equalsIgnoreCase(rt.typeId)) continue;
+                if (!candidate.categoryId.equalsIgnoreCase(rt.categoryId)) continue;
+                if (!equalsCI(candidate.reported, target)) continue;
+                candidates.add(candidate);
+            }
+        } else {
+            candidates = reports.values().stream()
+                    .filter(Report::isOpen)
+                    .filter(r -> equalsCI(r.reported, target))
+                    .filter(r -> r.typeId.equalsIgnoreCase(rt.typeId) && r.categoryId.equalsIgnoreCase(rt.categoryId))
+                    .collect(Collectors.toList());
+        }
         if (candidates.isEmpty()) return null;
         candidates.sort((a, b) -> {
             int byCount = Integer.compare(b.count, a.count);
@@ -343,6 +403,7 @@ public class ReportManager {
 
     private void loadAll() throws Exception {
         long maxId = 0;
+        openReportsByReported.clear();
         List<StoredReportPayload> payloads = storage.loadAll();
         for (StoredReportPayload payload : payloads) {
             try {
@@ -356,6 +417,9 @@ public class ReportManager {
                     long ca = getLong(m.get("closedAt"), 0L);
                     if (ca > 0) closedAtById.put(r.id, ca);
                     lastUpdateMillis.put(r.id, Math.max(r.timestamp, ca));
+                    if (r.isOpen()) {
+                        indexOpenReport(r);
+                    }
                 }
             } catch (Exception ex) {
                 log.warn("Failed to decode report #{}: {}", payload.id(), ex.toString());

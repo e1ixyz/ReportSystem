@@ -27,7 +27,7 @@ public class MysqlReportStorage implements ReportStorage {
         this.table = sanitizeTable(config.table);
         this.tableRef = "`" + this.table + "`";
         this.jdbcUrl = buildJdbcUrl();
-        Class.forName("com.mysql.cj.jdbc.Driver");
+        registerDriver();
         try (Connection conn = getConnection();
              Statement st = conn.createStatement()) {
             String ddl = "CREATE TABLE IF NOT EXISTS " + tableRef + " (" +
@@ -76,6 +76,20 @@ public class MysqlReportStorage implements ReportStorage {
 
     private Connection getConnection() throws SQLException {
         return DriverManager.getConnection(jdbcUrl, config.username, config.password);
+    }
+
+    private void registerDriver() throws Exception {
+        String expectedClass = com.mysql.cj.jdbc.Driver.class.getName();
+        boolean alreadyRegistered = DriverManager.drivers()
+                .anyMatch(driver -> driver.getClass().getName().equals(expectedClass));
+        if (alreadyRegistered) {
+            return;
+        }
+        try {
+            DriverManager.registerDriver(new com.mysql.cj.jdbc.Driver());
+        } catch (SQLException e) {
+            throw new Exception("Unable to register MySQL driver", e);
+        }
     }
 
     private String buildJdbcUrl() {

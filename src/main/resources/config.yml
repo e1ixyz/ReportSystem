@@ -209,6 +209,7 @@ messages:
   reports-priority-tiebreaker: "<gray>Tie-breaker after priority: <white>%tiebreaker%</white>.</gray>"
   reports-notify-summary: "<yellow>New report:</yellow> <white>#%id%</white> <gray>(%type% / %category%)</gray> <white>%target%</white> — <gray>%reason%</gray> %expand%"
   reports-notify-expand-button: "<gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>"
+  reports-inline-expand-button: "<gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>"
   reports-assign-self: "<gray>Assigned report <white>#%id%</white> to you.</gray>"
   reports-unassign-self: "<gray>Unassigned report <white>#%id%</white>.</gray>"
   reports-unassign-not-owner: "<red>You are not the assignee for #%id%.</red>"

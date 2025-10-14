@@ -27,7 +27,7 @@ import java.nio.file.Path;
 @Plugin(
         id = "reportsystem",
         name = "ReportSystem",
-        version = "2.1.0",
+        version = "3.0.0",
         authors = {"e1ixyz"}
 )
 public final class ReportSystem {

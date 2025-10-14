@@ -33,6 +33,10 @@ import java.util.Locale;
  */
 public class ReportsCommand implements SimpleCommand {
 
+    private static final List<String> ROOT_SUBCOMMANDS = List.of("page", "view", "claim", "claimed", "close",
+            "chat", "assign", "unassign", "search", "debug", "reload", "auth", "logoutall",
+            "assigntome", "unassignme");
+
     private final ReportSystem plugin;
     private final ReportManager mgr;
     private PluginConfig config;
@@ -53,7 +57,7 @@ public class ReportsCommand implements SimpleCommand {
     public void execute(Invocation inv) {
         CommandSource src = inv.source();
         if (!src.hasPermission(config.staffPermission)) {
-            Text.msg(src, config.msg("no-permission","You don't have permission."));
+            reply(src, config.msg("no-permission","You don't have permission."));
             return;
         }
 
@@ -72,7 +76,7 @@ public class ReportsCommand implements SimpleCommand {
                 } else {
                     String template = msg("reports-unknown-category",
                             "<red>Unknown category for type '%type%': %category%</red>");
-                    Text.msg(src, template
+                    reply(src, template
                             .replace("%type%", typeFilter)
                             .replace("%category%", maybeCat));
                     return;
@@ -94,7 +98,7 @@ public class ReportsCommand implements SimpleCommand {
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null || !r.isOpen()) {
-                    Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
+                    reply(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
                     return;
                 }
                 expand(src, r);
@@ -112,16 +116,17 @@ public class ReportsCommand implements SimpleCommand {
                         if (!src.hasPermission(config.forceClaimPermission) && !src.hasPermission(config.adminPermission)) {
                             String msgForce = msg("reports-force-claim-required", "<red>Already claimed by %assignee% (need force-claim).</red>")
                                     .replace("%assignee%", Text.escape(r.assignee));
-                            Text.msg(src, msgForce);
+                            reply(src, msgForce);
                             return;
                         }
                     }
                     mgr.assign(r.id, p.getUsername());
-                    Text.msg(src, msg("reports-claim-success", "<gray>You claimed report <white>#%id%</white>.</gray>")
-                            .replace("%id%", String.valueOf(r.id)));
+                    String claim = msg("reports-claim-success", "<gray>You claimed report <white>#%id%</white>.</gray>")
+                            .replace("%id%", String.valueOf(r.id));
+                    reply(src, withExpand(r, claim));
                 } else {
                     var open = mgr.getOpenReportsDescending();
-                    if (open.isEmpty()) { Text.msg(src, config.msg("claim-none", "<gray>No claimable reports available.</gray>")); return; }
+                    if (open.isEmpty()) { reply(src, config.msg("claim-none", "<gray>No claimable reports available.</gray>")); return; }
 
                     boolean canForce = src.hasPermission(config.forceClaimPermission) || src.hasPermission(config.adminPermission);
                     Report target = null;
@@ -144,10 +149,11 @@ public class ReportsCommand implements SimpleCommand {
                     if (target == null) {
                         if (forceCandidate != null) {
                             mgr.assign(forceCandidate.id, p.getUsername());
-                            Text.msg(src, config.msg("force-claimed", "<gray>You force-claimed report <white>#%id%</white>.</gray>")
-                                    .replace("%id%", String.valueOf(forceCandidate.id)));
+                            String forced = config.msg("force-claimed", "<gray>You force-claimed report <white>#%id%</white>.</gray>")
+                                    .replace("%id%", String.valueOf(forceCandidate.id));
+                            reply(src, withExpand(forceCandidate, forced));
                         } else {
-                            Text.msg(src, config.msg("claim-none", "<gray>No claimable reports available.</gray>"));
+                            reply(src, config.msg("claim-none", "<gray>No claimable reports available.</gray>"));
                         }
                         return;
                     }
@@ -155,7 +161,7 @@ public class ReportsCommand implements SimpleCommand {
                     mgr.assign(target.id, p.getUsername());
                     String claimMsg = msg("reports-claim-success", "<gray>You claimed report <white>#%id%</white>.</gray>")
                             .replace("%id%", String.valueOf(target.id));
-                    Text.msg(src, claimMsg);
+                    reply(src, withExpand(target, claimMsg));
                 }
             }
 
@@ -167,7 +173,7 @@ public class ReportsCommand implements SimpleCommand {
                 if (mine.isEmpty()) {
                     send(src, "reports-claimed-empty", "<gray>You have no claimed reports.</gray>");
                 } else {
-                    Text.msg(src, msg("reports-claimed-header", "<gray>Your claimed reports:</gray>"));
+                    reply(src, msg("reports-claimed-header", "<gray>Your claimed reports:</gray>"));
                     String tip = expandTip();
                     String entryTemplate = msg("reports-claimed-entry",
                             "%row%  <gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>");
@@ -177,7 +183,7 @@ public class ReportsCommand implements SimpleCommand {
                                 .replace("%id%", String.valueOf(r.id))
                                 .replace("%expand_tip%", Text.escape(tip))
                                 .replace("%expand_label%", Text.escape(expandLabel()));
-                        Text.msg(src, entry);
+                        reply(src, entry);
                     }
                 }
             }
@@ -187,11 +193,11 @@ public class ReportsCommand implements SimpleCommand {
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) {
-                    Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
+                    reply(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
                     return;
                 }
                 mgr.close(id); mgr.save();
-                Text.msg(src, config.msg("closed","Closed report #%id%").replace("%id%", String.valueOf(id)));
+                reply(src, config.msg("closed","Closed report #%id%").replace("%id%", String.valueOf(id)));
                 try {
                     Object n = plugin.notifier();
                     if (n != null) n.getClass().getMethod("notifyClosed", Report.class).invoke(n, r);
@@ -203,11 +209,11 @@ public class ReportsCommand implements SimpleCommand {
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) {
-                    Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
+                    reply(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
                     return;
                 }
                 if (r.chat == null || r.chat.isEmpty()) {
-                    Text.msg(src, config.msg("chatlog-none","No chat messages were captured for this report."));
+                    reply(src, config.msg("chatlog-none","No chat messages were captured for this report."));
                     return;
                 }
 
@@ -222,10 +228,10 @@ public class ReportsCommand implements SimpleCommand {
                             return;
                         }
                         String tip = config.msg("tip-open-browser", "Open in browser");
-                        Text.msg(src, "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + link + "'>"+config.msg("open-chatlog-label","Open chat log")+"</click></hover></aqua><gray>]</gray>");
+                        reply(src, "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + link + "'>"+config.msg("open-chatlog-label","Open chat log")+"</click></hover></aqua><gray>]</gray>");
                     } catch (Exception ex) {
                         String template = msg("reports-chatlog-export-failed", "<red>Failed to export HTML chat log:</red> <gray>%error%</gray>");
-                        Text.msg(src, template.replace("%error%", Text.escape(ex.getMessage())));
+                        reply(src, template.replace("%error%", Text.escape(ex.getMessage())));
                     }
                 } else {
                     // Paginated inline echo
@@ -242,22 +248,23 @@ public class ReportsCommand implements SimpleCommand {
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) {
-                    Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
+                    reply(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
                     return;
                 }
                 String staff = args[2];
 
                 if (r.assignee != null && !r.assignee.isBlank() && !staff.equalsIgnoreCase(r.assignee)) {
                     if (!src.hasPermission(config.forceClaimPermission) && !src.hasPermission(config.adminPermission)) {
-                        Text.msg(src, msg("reports-force-claim-required", "<red>Already claimed by %assignee% (need force-claim).</red>")
+                        reply(src, msg("reports-force-claim-required", "<red>Already claimed by %assignee% (need force-claim).</red>")
                                 .replace("%assignee%", Text.escape(r.assignee)));
                         return;
                     }
                 }
 
                 mgr.assign(id, staff);
-                Text.msg(src, config.msg("assigned","Assigned report #%id% to %assignee%")
-                        .replace("%id%", String.valueOf(id)).replace("%assignee%", staff));
+                String assigned = config.msg("assigned","Assigned report #%id% to %assignee%")
+                        .replace("%id%", String.valueOf(id)).replace("%assignee%", staff);
+                reply(src, withExpand(r, assigned));
                 try {
                     Object n = plugin.notifier();
                     if (n != null) n.getClass().getMethod("notifyAssigned", Report.class, String.class).invoke(n, r, staff);
@@ -269,15 +276,15 @@ public class ReportsCommand implements SimpleCommand {
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null) {
-                    Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
+                    reply(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
                     return;
                 }
                 if (r.assignee == null || r.assignee.isBlank()) {
-                    Text.msg(src, config.msg("already-unassigned","Report #%id% is not assigned.").replace("%id%", String.valueOf(id)));
+                    reply(src, config.msg("already-unassigned","Report #%id% is not assigned.").replace("%id%", String.valueOf(id)));
                     return;
                 }
                 mgr.unassign(id);
-                Text.msg(src, config.msg("unassigned","Unassigned report #%id%").replace("%id%", String.valueOf(id)));
+                reply(src, config.msg("unassigned","Unassigned report #%id%").replace("%id%", String.valueOf(id)));
                 try {
                     Object n = plugin.notifier();
                     if (n != null) n.getClass().getMethod("notifyUnassigned", Report.class).invoke(n, r);
@@ -289,8 +296,8 @@ public class ReportsCommand implements SimpleCommand {
                 String scope = args.length >= 3 ? args[2] : "open";
                 String query = args[1];
                 var results = mgr.search(query, scope);
-                if (results.isEmpty()) { Text.msg(src, config.msg("search-empty","No matching reports.")); return; }
-                Text.msg(src, config.msg("search-header","Search: %query% (%scope%)")
+                if (results.isEmpty()) { reply(src, config.msg("search-empty","No matching reports.")); return; }
+                reply(src, config.msg("search-header","Search: %query% (%scope%)")
                         .replace("%query%", query).replace("%scope%", scope));
                 int shown = 0, limit = Math.min(30, results.size());
                 String tip = expandTip();
@@ -304,13 +311,13 @@ public class ReportsCommand implements SimpleCommand {
                             .replace("%id%", String.valueOf(r.id))
                             .replace("%expand_tip%", Text.escape(tip))
                             .replace("%expand_label%", Text.escape(expandLabel));
-                    Text.msg(src, entry);
+                    reply(src, entry);
                     shown++;
                 }
                 if (results.size() > shown) {
                     String extra = msg("reports-search-more", "<gray>…and %count% more.</gray>")
                             .replace("%count%", String.valueOf(results.size() - shown));
-                    Text.msg(src, extra);
+                    reply(src, extra);
                 }
             }
 
@@ -319,7 +326,7 @@ public class ReportsCommand implements SimpleCommand {
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
                 if (r == null || !r.isOpen()) {
-                    Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
+                    reply(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1]));
                     return;
                 }
                 showPriorityBreakdown(src, r);
@@ -339,7 +346,7 @@ public class ReportsCommand implements SimpleCommand {
                 }
                 plugin.reload();
                 if (!broadcasted) {
-                    Text.msg(src, config.msg("reloaded","ReportSystem reloaded."));
+                    reply(src, config.msg("reloaded","ReportSystem reloaded."));
                 }
             }
 
@@ -353,17 +360,17 @@ public class ReportsCommand implements SimpleCommand {
                     send(src, "auth-code-failed", "<red>Unable to generate an auth code. Do you have permission?</red>");
                     return;
                 }
-                Text.msg(src,
+                reply(src,
                         "<gray>Your one-time code:</gray> <white><bold>" + code.code + "</bold></white> " +
                                 "<gray>(expires in " + config.msg("auth-code-ttl-s", "120") + "s)</gray>");
                 String base = pickBaseUrl(config);
                 if (!base.isBlank()) {
                     String tip = config.msg("tip-open-login","Open login page");
                     String link = joinUrl(base, "/login");
-                    Text.msg(src,
+                    reply(src,
                             "<gray>[</gray><aqua><hover:show_text:'"+Text.escape(tip)+"'><click:open_url:'" + Text.escape(link) + "'>Open login</click></hover></aqua><gray>]</gray>");
                 } else {
-                    Text.msg(src, config.msg("auth-no-base-url", "<red>No public URL configured. Set public-base-url or http-server.external-base-url.</red>"));
+                    reply(src, config.msg("auth-no-base-url", "<red>No public URL configured. Set public-base-url or http-server.external-base-url.</red>"));
                 }
             }
 
@@ -377,7 +384,7 @@ public class ReportsCommand implements SimpleCommand {
                     return;
                 }
                 int n = auth.revokeAllFor(p.getUniqueId());
-                Text.msg(src, msg("auth-logoutall-success", "<gray>Revoked <white>%count%</white> web session(s).</gray>")
+                reply(src, msg("auth-logoutall-success", "<gray>Revoked <white>%count%</white> web session(s).</gray>")
                         .replace("%count%", String.valueOf(n)));
             }
 
@@ -386,19 +393,20 @@ public class ReportsCommand implements SimpleCommand {
                 if (args.length < 2) { send(src, "usage-reports-assigntome", "<yellow>Usage:</yellow> /reports assigntome <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
-                if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
+                if (r == null) { reply(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
 
                 if (r.assignee != null && !r.assignee.isBlank() && !p.getUsername().equalsIgnoreCase(r.assignee)) {
                     if (!src.hasPermission(config.forceClaimPermission) && !src.hasPermission(config.adminPermission)) {
                         String msg = msg("reports-force-claim-required", "<red>Already claimed by %assignee% (need force-claim).</red>")
                                 .replace("%assignee%", Text.escape(r.assignee));
-                        Text.msg(src, msg);
+                        reply(src, msg);
                         return;
                     }
                 }
                 mgr.assign(id, p.getUsername());
-                Text.msg(src, msg("reports-assign-self", "<gray>Assigned report <white>#%id%</white> to you.</gray>")
-                        .replace("%id%", String.valueOf(id)));
+                String selfAssign = msg("reports-assign-self", "<gray>Assigned report <white>#%id%</white> to you.</gray>")
+                        .replace("%id%", String.valueOf(id));
+                reply(src, withExpand(r, selfAssign));
             }
 
             case "unassignme" -> {
@@ -406,18 +414,18 @@ public class ReportsCommand implements SimpleCommand {
                 if (args.length < 2) { send(src, "usage-reports-unassignme", "<yellow>Usage:</yellow> /reports unassignme <id>"); return; }
                 long id = parseLong(args[1], -1);
                 Report r = mgr.get(id);
-                if (r == null) { Text.msg(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
+                if (r == null) { reply(src, config.msg("not-found","No such report: #%id%").replace("%id%", args[1])); return; }
                 if (r.assignee == null || r.assignee.isBlank()) {
-                    Text.msg(src, config.msg("already-unassigned","Report #%id% is not assigned.").replace("%id%", String.valueOf(id)));
+                    reply(src, config.msg("already-unassigned","Report #%id% is not assigned.").replace("%id%", String.valueOf(id)));
                     return;
                 }
                 if (!p.getUsername().equalsIgnoreCase(r.assignee)) {
-                    Text.msg(src, msg("reports-unassign-not-owner", "<red>You are not the assignee for #%id%.</red>")
+                    reply(src, msg("reports-unassign-not-owner", "<red>You are not the assignee for #%id%.</red>")
                             .replace("%id%", String.valueOf(id)));
                     return;
                 }
                 mgr.unassign(id);
-                Text.msg(src, msg("reports-unassign-self", "<gray>Unassigned report <white>#%id%</white>.</gray>")
+                reply(src, msg("reports-unassign-self", "<gray>Unassigned report <white>#%id%</white>.</gray>")
                         .replace("%id%", String.valueOf(id)));
             }
 
@@ -429,7 +437,7 @@ public class ReportsCommand implements SimpleCommand {
     public List<String> suggest(Invocation inv) {
         String[] a = inv.arguments();
         if (a.length == 0) {
-            return List.of("page", "view", "claim", "claimed", "close", "chat", "assign", "unassign", "search", "debug", "reload", "auth", "logoutall");
+            return ROOT_SUBCOMMANDS;
         }
         switch (a[0].toLowerCase()) {
             case "page" -> {
@@ -493,9 +501,16 @@ public class ReportsCommand implements SimpleCommand {
                 if (a.length >= 2) return filter(ids, a[1]);
             }
             default -> {
-                // fall back to type/category suggestions
-                if (a.length == 1) return mgr.typeIds();
-                if (a.length == 2) return mgr.categoryIdsFor(a[0]);
+                List<String> filteredCommands = filter(ROOT_SUBCOMMANDS, a[0]);
+                if (!filteredCommands.isEmpty()) {
+                    return filteredCommands;
+                }
+                if (a.length == 1) {
+                    return filter(mgr.typeIds(), a[0]);
+                }
+                if (a.length == 2) {
+                    return filter(mgr.categoryIdsFor(a[0]), a[1]);
+                }
             }
         }
         return List.of();
@@ -526,7 +541,7 @@ public class ReportsCommand implements SimpleCommand {
                 open = open.stream().filter(r -> r.categoryId.equalsIgnoreCase(categoryFilter)).toList();
             }
         }
-        if (open.isEmpty()) { Text.msg(src, config.msg("page-empty","No open reports.")); return; }
+        if (open.isEmpty()) { reply(src, config.msg("page-empty","No open reports.")); return; }
 
         int per = Math.max(1, config.reportsPerPage);
         int pages = Math.max(1, (int) Math.ceil(open.size() / (double) per));
@@ -541,7 +556,7 @@ public class ReportsCommand implements SimpleCommand {
                        .replace("%cat%", categoryFilter == null ? "*" : categoryFilter)
                        .replace("%page%", String.valueOf(page))
                        .replace("%pages%", String.valueOf(pages));
-        Text.msg(src, header);
+        reply(src, header);
 
         String tip = expandTip();
         String entryTemplate = msg("reports-list-entry",
@@ -553,7 +568,7 @@ public class ReportsCommand implements SimpleCommand {
                     .replace("%id%", String.valueOf(r.id))
                     .replace("%expand_tip%", Text.escape(tip))
                     .replace("%expand_label%", Text.escape(expandLabel));
-            Text.msg(src, entry);
+            reply(src, entry);
         }
 
         if (pages > 1) {
@@ -570,7 +585,7 @@ public class ReportsCommand implements SimpleCommand {
             String def = overshoot
                     ? "<gray>You're already on the last page.</gray>"
                     : "<gray>You're already on the first page.</gray>";
-            Text.msg(src, config.msg(key, def));
+        Text.msg(src, msg(key, def));
         }
 
         if (src instanceof Player p) {
@@ -674,17 +689,18 @@ public class ReportsCommand implements SimpleCommand {
 
     /** Expanded view for a single report (used by "view"). */
     private void expand(CommandSource src, Report r) {
+        reply(src, "");
         String header = config.msg("expanded-header","Report #%id% (%type% / %category%)")
                 .replace("%id%", String.valueOf(r.id))
                 .replace("%type%", r.typeDisplay)
                 .replace("%category%", r.categoryDisplay);
-        Text.msg(src, header);
+        reply(src, header);
 
         String serverName = deriveServer(r);
         if (serverName == null || serverName.isBlank()) serverName = "UNKNOWN";
         String serverLine = config.msg("expanded-server-line", "<gray>Server:</gray> <white>%server%</white>")
                 .replace("%server%", serverName);
-        Text.msg(src, serverLine);
+        reply(src, serverLine);
 
         var lines = config.msgList("expanded-lines", List.of(
                 "<gray>Reported:</gray> <white>%target%</white> <gray>by</gray> <white>%player%</white>",
@@ -709,7 +725,7 @@ public class ReportsCommand implements SimpleCommand {
                     .replace("%status%", r.status == null ? "OPEN" : r.status.name())
                     .replace("%assignee%", assignee)
                     .replace("%server%", serverName);
-            Text.msg(src, out);
+            reply(src, out);
         }
 
         String tipClose = config.msg("tip-close", "Close this report");
@@ -757,7 +773,7 @@ public class ReportsCommand implements SimpleCommand {
             }
         }
 
-        Text.msg(src, actions.toString());
+        reply(src, actions.toString());
     }
 
     /** Paginated inline chat output when web viewer is disabled. */
@@ -770,7 +786,7 @@ public class ReportsCommand implements SimpleCommand {
         int start = (page - 1) * per;
                 int end = Math.min(start + per, total);
 
-                Text.msg(src, msg("reports-chat-header", "<gray>Chat for #%id% — page %page%/%pages% (%total% lines):</gray>")
+                reply(src, msg("reports-chat-header", "<gray>Chat for #%id% — page %page%/%pages% (%total% lines):</gray>")
                         .replace("%id%", String.valueOf(r.id))
                         .replace("%page%", String.valueOf(page))
                         .replace("%pages%", String.valueOf(pages))
@@ -783,7 +799,7 @@ public class ReportsCommand implements SimpleCommand {
                         int lim = Math.max(0, config.previewLineMaxChars - 1);
                         safe = safe.substring(0, lim) + "…";
                     }
-                    Text.msg(src, msg("reports-chat-line", "<gray>%line%</gray>").replace("%line%", safe));
+                    reply(src, msg("reports-chat-line", "<gray>%line%</gray>").replace("%line%", safe));
                 }
 
         if (pages > 1) {
@@ -844,32 +860,57 @@ public class ReportsCommand implements SimpleCommand {
         return config.msg(key, def);
     }
 
+    private void reply(CommandSource src, String mini) {
+        Text.msg(src, mini == null ? "" : mini);
+    }
+
     private void send(CommandSource src, String key, String def) {
-        Text.msg(src, msg(key, def));
+        reply(src, msg(key, def));
+    }
+
+    private String expandButton(long id) {
+        String template = config.msg("reports-inline-expand-button", "");
+        if (template == null || template.isBlank()) {
+            template = config.msg("reports-notify-expand-button",
+                    "<gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>");
+        }
+        String tip = expandTip();
+        String label = expandLabel();
+        return template
+                .replace("%id%", String.valueOf(id))
+                .replace("%expand_tip%", Text.escape(tip))
+                .replace("%expand_label%", Text.escape(label));
+    }
+
+    private String withExpand(Report report, String message) {
+        if (report == null) return message;
+        String button = expandButton(report.id);
+        if (button == null || button.isBlank()) return message;
+        return message + " " + button;
     }
 
     private void showPriorityBreakdown(CommandSource src, Report r) {
         var breakdown = mgr.debugPriority(r);
         if (!breakdown.enabled) {
-            Text.msg(src, msg("reports-priority-disabled", "<gray>Priority scoring is disabled; ordering falls back to <white>%tiebreaker%</white>.</gray>")
+            reply(src, msg("reports-priority-disabled", "<gray>Priority scoring is disabled; ordering falls back to <white>%tiebreaker%</white>.</gray>")
                     .replace("%tiebreaker%", Text.escape(breakdown.tieBreaker)));
             return;
         }
 
-        Text.msg(src, msg("reports-priority-total", "<gray>Priority for <white>#%id%</white>: <green>%score%</green></gray>")
+        reply(src, msg("reports-priority-total", "<gray>Priority for <white>#%id%</white>: <green>%score%</green></gray>")
                 .replace("%id%", String.valueOf(r.id))
                 .replace("%score%", fmt(breakdown.total)));
         if (breakdown.components.isEmpty()) {
-            Text.msg(src, msg("reports-priority-empty", "<gray>No contributing factors (all weights zero or disabled).</gray>"));
+            reply(src, msg("reports-priority-empty", "<gray>No contributing factors (all weights zero or disabled).</gray>"));
         } else {
             for (var comp : breakdown.components) {
                 String line = "<gray>- " + Text.escape(comp.name) + ":</gray> weight <white>" + fmt(comp.weight)
                         + "</white> × value <white>" + fmt(comp.value) + "</white> = <white>" + fmt(comp.contribution)
                         + "</white> <gray>(" + Text.escape(comp.reason) + ")</gray>";
-                Text.msg(src, line);
+                reply(src, line);
             }
         }
-        Text.msg(src, msg("reports-priority-tiebreaker", "<gray>Tie-breaker after priority: <white>%tiebreaker%</white>.</gray>")
+        reply(src, msg("reports-priority-tiebreaker", "<gray>Tie-breaker after priority: <white>%tiebreaker%</white>.</gray>")
                 .replace("%tiebreaker%", Text.escape(breakdown.tieBreaker)));
     }
 
