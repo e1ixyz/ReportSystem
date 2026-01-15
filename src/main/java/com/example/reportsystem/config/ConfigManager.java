@@ -51,6 +51,13 @@ public class ConfigManager {
         pc.forceClaimPermission = get(root, "force-claim-permission", "reportsystem.forceclaim");
         pc.notifyPermission     = get(root, "notify-permission", "reportsystem.notify");
         pc.reportCooldownSeconds= get(root, "report-cooldown-seconds", 60);
+        pc.reportMenuEnabled    = get(root, "report-menu.enabled", false);
+        pc.reportMenuCancelKeyword = get(root, "report-menu.cancel-keyword", "cancel");
+        if (root.containsKey("punishCommand")) {
+            pc.punishCommand = get(root, "punishCommand", "");
+        } else {
+            pc.punishCommand = get(root, "punish-command", "");
+        }
 
         // Preview + public URL
         pc.previewLines         = get(root, "preview-lines", 10);

@@ -9,6 +9,7 @@ import com.example.reportsystem.service.AuthService;
 import com.example.reportsystem.service.ChatLogService;
 import com.example.reportsystem.service.Notifier;
 import com.example.reportsystem.service.ReportManager;
+import com.example.reportsystem.service.ReportMenuService;
 import com.example.reportsystem.service.WebServer;
 import com.example.reportsystem.util.Text;
 import com.google.inject.Inject;
@@ -42,6 +43,7 @@ public final class ReportSystem {
     private AuthService authService;
     private Notifier notifier;
     private WebServer webServer;
+    private ReportMenuService reportMenuService;
     private ReportCommand reportCommand;
     private ReportsCommand reportsCommand;
     private ReportHistoryCommand reportHistoryCommand;
@@ -86,7 +88,10 @@ public final class ReportSystem {
         CommandManager cm = proxy.getCommandManager();
         CommandMeta reportMeta = cm.metaBuilder("report").build();
         this.reportCommand = new ReportCommand(this, reportManager, chatLogService, config);
+        this.reportMenuService = new ReportMenuService(this, reportManager, reportCommand, config);
+        this.reportCommand.setMenuService(reportMenuService);
         cm.register(reportMeta, reportCommand);
+        proxy.getEventManager().register(this, reportMenuService);
 
         CommandMeta reportsMeta = cm.metaBuilder("reports").build();
         this.reportsCommand = new ReportsCommand(this, reportManager, config, authService);
@@ -111,6 +116,12 @@ public final class ReportSystem {
             if (reportCommand != null) reportCommand.setConfig(newCfg);
             if (reportsCommand != null) reportsCommand.setConfig(newCfg);
             if (reportHistoryCommand != null) reportHistoryCommand.setConfig(newCfg);
+            if (reportMenuService != null) {
+                reportMenuService.setConfig(newCfg);
+                if (!newCfg.reportMenuEnabled) {
+                    reportMenuService.clearSessions();
+                }
+            }
 
             if (webServer != null) {
                 webServer.stop();

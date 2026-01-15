@@ -32,6 +32,10 @@ public class PluginConfig {
 
     // Cooldown (seconds). Staff/staffPermission holders bypass.
     public int reportCooldownSeconds = 60;
+    public boolean reportMenuEnabled = false;
+    public String reportMenuCancelKeyword = "cancel";
+    /** Optional command run by the Punish button on expanded reports. */
+    public String punishCommand = "";
 
     // Inline preview safety
     public int previewLines = 10;

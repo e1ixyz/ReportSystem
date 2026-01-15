@@ -38,6 +38,20 @@ admin-permission: "reportsystem.admin"            # Admin-only: /reports reload,
 report-cooldown-seconds: 60
 
 # ------------------------------------------------------------------------------------
+# REPORT MENU (interactive chat prompts)
+# ------------------------------------------------------------------------------------
+report-menu:
+  enabled: false
+  cancel-keyword: "cancel"
+
+# ------------------------------------------------------------------------------------
+# PUNISH BUTTON (expanded reports)
+# ------------------------------------------------------------------------------------
+# Set to a command template to show the Punish button on expanded reports.
+# Available placeholders: %player%, %report-id%
+punishCommand: ""                      # e.g. "punish %player% %report-id%"
+
+# ------------------------------------------------------------------------------------
 # INLINE PREVIEW (safe inline chat previews)
 # ------------------------------------------------------------------------------------
 preview-lines: 10
@@ -162,6 +176,18 @@ messages:
   report-stacked: "Report stacked into #%id% (now x%count%)"
   report-filed: "Report filed! (ID #%id%)"
   report-cooldown: "<red>You must wait %seconds% seconds before filing another report.</red>"
+  report-menu-disabled: "<red>The report menu is currently disabled.</red>"
+  report-menu-no-types: "<red>No report types are configured.</red>"
+  report-menu-already-open: "<red>You already have a report menu open.</red>"
+  report-menu-start: "<green>Opening the report menu. Type <white>%cancel%</white> to cancel.</green>"
+  report-menu-prompt-type: "<yellow>What type of report? %options%</yellow>"
+  report-menu-invalid-type: "<red>That's not a valid report type. Options: %options%</red>"
+  report-menu-prompt-category: "<yellow>Which category fits best? %options%</yellow>"
+  report-menu-invalid-category: "<red>That category doesn't match %type%. Options: %options%</red>"
+  report-menu-prompt-target: "<yellow>Who are you reporting? Type a player name.</yellow>"
+  report-menu-prompt-reason: "<yellow>Please describe the reason for this report.</yellow>"
+  report-menu-reason-required: "<red>Please provide a brief reason.</red>"
+  report-menu-cancelled: "<gray>Report menu cancelled.</gray>"
 
   # Common
   not-found: "No such report: #%id%"
@@ -247,6 +273,7 @@ messages:
   tip-reload: "Reload reports"
   tip-close: "Close this report"
   tip-chat: "View chat logs"
+  tip-punish: "Run punish command"
   tip-jump-server: "Connect to this server"
   tip-assign-me: "Assign to me"
   tip-unassign: "Unassign"
@@ -259,6 +286,7 @@ messages:
   button-claimed: "Claimed"
   button-chatlog-auth: "Chat Log Auth"
   button-reporthistory: "Report History"
+  button-punish: "Punish"
 
   # Hover tooltips for list line segments
   tip-target: "Target: %name%"

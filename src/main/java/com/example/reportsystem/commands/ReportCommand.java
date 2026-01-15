@@ -6,6 +6,7 @@ import com.example.reportsystem.model.Report;
 import com.example.reportsystem.model.ReportType;
 import com.example.reportsystem.service.ChatLogService;
 import com.example.reportsystem.service.ReportManager;
+import com.example.reportsystem.service.ReportMenuService;
 import com.example.reportsystem.util.Text;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
@@ -36,6 +37,7 @@ public class ReportCommand implements SimpleCommand {
     private final ChatLogService chat;
     private PluginConfig config;
     private final ConcurrentMap<UUID, Long> lastReportAt = new ConcurrentHashMap<>();
+    private ReportMenuService menuService;
 
     public ReportCommand(ReportSystem plugin, ReportManager mgr, ChatLogService chat, PluginConfig config) {
         this.plugin = plugin;
@@ -48,13 +50,29 @@ public class ReportCommand implements SimpleCommand {
         this.config = config;
     }
 
+    public void setMenuService(ReportMenuService menuService) {
+        this.menuService = menuService;
+    }
+
     @Override
     public void execute(Invocation inv) {
         CommandSource src = inv.source();
         String[] args = inv.arguments();
+        String usage = config.msg("usage-report", "Usage: /report <type> <category> [<target>] <reason...>");
+
+        if (args.length == 0) {
+            if (src instanceof Player player && config.reportMenuEnabled && menuService != null) {
+                if (!menuService.openMenu(player)) {
+                    Text.msg(src, usage);
+                }
+            } else {
+                Text.msg(src, usage);
+            }
+            return;
+        }
 
         if (args.length < 2) {
-            Text.msg(src, config.msg("usage-report", "Usage: /report <type> <category> [<target>] <reason...>"));
+            Text.msg(src, usage);
             return;
         }
 
@@ -70,7 +88,6 @@ public class ReportCommand implements SimpleCommand {
         }
 
         boolean isPlayerType = rt.typeId.equalsIgnoreCase("player");
-        String reporter = (src instanceof Player p) ? p.getUsername() : "CONSOLE";
         String reported;
         String reason;
 
@@ -106,7 +123,81 @@ public class ReportCommand implements SimpleCommand {
             reason = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
         }
 
-        Report r = mgr.fileOrStack(reporter, reported, rt, reason);
+        handleSubmission(src, playerSource, rt, reported, reason);
+    }
+
+    public boolean enforceCooldown(Player player) {
+        if (player.hasPermission(config.staffPermission)) return true;
+
+        int cooldown = Math.max(0, config.reportCooldownSeconds);
+        if (cooldown <= 0) return true;
+
+        long now = System.currentTimeMillis();
+        long last = lastReportAt.getOrDefault(player.getUniqueId(), 0L);
+        long waitMillis = (last + cooldown * 1000L) - now;
+        if (waitMillis <= 0) return true;
+
+        long secondsLeft = (waitMillis + 999L) / 1000L;
+        Text.msg(player, config.msg("report-cooldown", "<red>You must wait %seconds%s before filing another report.</red>")
+                .replace("%seconds%", String.valueOf(secondsLeft)));
+        return false;
+    }
+
+    @Override
+    public List<String> suggest(Invocation inv) {
+        String[] a = inv.arguments();
+
+        if (a.length == 0) return mgr.typeIds();
+        if (a.length == 1) return filter(mgr.typeIds(), a[0]);
+        if (a.length == 2) return filter(mgr.categoryIdsFor(a[0]), a[1]);
+
+        if (a[0].equalsIgnoreCase("player")) {
+            if (a.length == 3) {
+                var names = plugin.proxy().getAllPlayers().stream().map(Player::getUsername).toList();
+                return filter(names, a[2]);
+            }
+            return reasonPlaceholder(a.length >= 4 ? a[3] : "");
+        }
+
+        if (a.length >= 3) {
+            return reasonPlaceholder(a[2]);
+        }
+
+        return List.of();
+    }
+
+    private static List<String> filter(List<String> options, String prefix) {
+        String p = prefix.toLowerCase(Locale.ROOT);
+        return options.stream().filter(s -> s.toLowerCase(Locale.ROOT).startsWith(p)).toList();
+    }
+
+    private static List<String> reasonPlaceholder(String current) {
+        if (current == null || current.isBlank()) return List.of(REASON_PLACEHOLDER);
+        String p = current.toLowerCase(Locale.ROOT);
+        return REASON_PLACEHOLDER.toLowerCase(Locale.ROOT).startsWith(p)
+                ? List.of(REASON_PLACEHOLDER)
+                : List.of();
+    }
+
+    public boolean submitFromMenu(Player player, ReportType rt, String reported, String reason) {
+        if (player == null || rt == null) {
+            return false;
+        }
+        return handleSubmission(player, player, rt, reported, reason);
+    }
+
+    private boolean handleSubmission(CommandSource src, Player playerSource, ReportType rt, String reported, String reason) {
+        boolean isPlayerType = rt.typeId.equalsIgnoreCase("player");
+        String reporterName;
+        if (playerSource != null) {
+            reporterName = playerSource.getUsername();
+        } else if (src instanceof Player p) {
+            reporterName = p.getUsername();
+        } else {
+            reporterName = "CONSOLE";
+        }
+
+        Report r = mgr.fileOrStack(reporterName, reported, rt, reason);
 
         if (playerSource != null) {
             String srcServer = playerSource.getCurrentServer().map(s -> s.getServerInfo().getName()).orElse(null);
@@ -163,58 +254,6 @@ public class ReportCommand implements SimpleCommand {
                 n.getClass().getMethod("notifyNew", Report.class, String.class).invoke(n, r, reason);
             }
         } catch (Throwable ignored) {}
-    }
-
-    private boolean enforceCooldown(Player player) {
-        if (player.hasPermission(config.staffPermission)) return true;
-
-        int cooldown = Math.max(0, config.reportCooldownSeconds);
-        if (cooldown <= 0) return true;
-
-        long now = System.currentTimeMillis();
-        long last = lastReportAt.getOrDefault(player.getUniqueId(), 0L);
-        long waitMillis = (last + cooldown * 1000L) - now;
-        if (waitMillis <= 0) return true;
-
-        long secondsLeft = (waitMillis + 999L) / 1000L;
-        Text.msg(player, config.msg("report-cooldown", "<red>You must wait %seconds%s before filing another report.</red>")
-                .replace("%seconds%", String.valueOf(secondsLeft)));
-        return false;
-    }
-
-    @Override
-    public List<String> suggest(Invocation inv) {
-        String[] a = inv.arguments();
-
-        if (a.length == 0) return mgr.typeIds();
-        if (a.length == 1) return filter(mgr.typeIds(), a[0]);
-        if (a.length == 2) return filter(mgr.categoryIdsFor(a[0]), a[1]);
-
-        if (a[0].equalsIgnoreCase("player")) {
-            if (a.length == 3) {
-                var names = plugin.proxy().getAllPlayers().stream().map(Player::getUsername).toList();
-                return filter(names, a[2]);
-            }
-            return reasonPlaceholder(a.length >= 4 ? a[3] : "");
-        }
-
-        if (a.length >= 3) {
-            return reasonPlaceholder(a[2]);
-        }
-
-        return List.of();
-    }
-
-    private static List<String> filter(List<String> options, String prefix) {
-        String p = prefix.toLowerCase(Locale.ROOT);
-        return options.stream().filter(s -> s.toLowerCase(Locale.ROOT).startsWith(p)).toList();
-    }
-
-    private static List<String> reasonPlaceholder(String current) {
-        if (current == null || current.isBlank()) return List.of(REASON_PLACEHOLDER);
-        String p = current.toLowerCase(Locale.ROOT);
-        return REASON_PLACEHOLDER.toLowerCase(Locale.ROOT).startsWith(p)
-                ? List.of(REASON_PLACEHOLDER)
-                : List.of();
+        return true;
     }
 }

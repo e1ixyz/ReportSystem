@@ -730,6 +730,7 @@ public class ReportsCommand implements SimpleCommand {
 
         String tipClose = config.msg("tip-close", "Close this report");
         String tipChat  = config.msg("tip-chat", "View chat logs");
+        String tipPunish = config.msg("tip-punish", "Run punish command");
         String tipJump  = config.msg("tip-jump-server", "Connect to this server");
 
         StringBuilder actions = new StringBuilder();
@@ -737,6 +738,14 @@ public class ReportsCommand implements SimpleCommand {
                 .append("'><click:run_command:'/reports close ").append(r.id).append("'>Close</click></hover></green><gray>]</gray> ");
         actions.append("<gray>[</gray><aqua><hover:show_text:'").append(Text.escape(tipChat))
                 .append("'><click:run_command:'/reports chat ").append(r.id).append("'>Chat Logs</click></hover></aqua><gray>]</gray> ");
+
+        String punishCmd = buildPunishCommand(r);
+        if (punishCmd != null) {
+            String punishLabel = config.msg("button-punish", "Punish");
+            actions.append("<gray>[</gray><red><hover:show_text:'").append(Text.escape(tipPunish))
+                    .append("'><click:run_command:'").append(Text.escape(punishCmd))
+                    .append("'>").append(Text.escape(punishLabel)).append("</click></hover></red><gray>]</gray> ");
+        }
 
         // Only show Jump if the server actually exists on the proxy
         if (!"UNKNOWN".equalsIgnoreCase(serverName)
@@ -774,6 +783,16 @@ public class ReportsCommand implements SimpleCommand {
         }
 
         reply(src, actions.toString());
+    }
+
+    private String buildPunishCommand(Report r) {
+        if (r == null) return null;
+        String template = config.punishCommand;
+        if (template == null || template.isBlank()) return null;
+        String target = r.reported == null ? "" : r.reported.trim();
+        if (target.isEmpty() || "n/a".equalsIgnoreCase(target) || "unknown".equalsIgnoreCase(target)) return null;
+        return template.replace("%player%", target)
+                .replace("%report-id%", String.valueOf(r.id));
     }
 
     /** Paginated inline chat output when web viewer is disabled. */

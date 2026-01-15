@@ -4,7 +4,7 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
 
 ## Feature Highlights
 
-- **Dynamic reporting UX** – `/report <type> <category> …` supports configurable report types/categories, automatic stacking of duplicate reports, and context-aware tab completion.
+- **Dynamic reporting UX** – `/report <type> <category> …` supports configurable report types/categories, automatic stacking of duplicate reports, and context-aware tab completion. When the optional report menu is enabled, `/report` with no arguments walks players through each question one at a time.
 - **Live evidence capture** – chat logs are buffered for every player and appended to open reports in real time, with HTML export and web viewer support when enabled.
 - **Staff consoles** – `/reports` (open queue) and `/reporthistory` (closed queue) expose pagination, filters, quick actions (claim, assign, close, reopen) and MiniMessage-powered UI components.
 - **Priority scoring** – a multi-factor system ranks open reports using stack count, recency decay, severity mappings, captured evidence, assignment state, aging, and SLA breaches. `/reports debug <id>` explains the exact score breakdown.
@@ -46,6 +46,7 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
          color: "<green>"
      ```
      You can reorder, remove, or add buttons as needed.
+   - Toggle the interactive report menu via the `report-menu` block. Set `enabled: true` to let `/report` open the chat-driven menu (players can still submit the full command manually). Adjust `cancel-keyword` and the `messages.report-menu-*` entries to localise the prompts.
    - Every chat message emitted by the plugin (errors, usage text, notifications, pagination banners, join summaries, etc.) is driven by the `messages:` block. Update entries such as `reports-notify-summary`, `reports-claimed-entry`, `usage-reports-*`, or `summary-*` to restyle output and change colours.
    - Choose where reports are persisted via the `storage` block. Two backends ship with the plugin:
      * `filesystem` (default) writes one YAML file per report under `plugins/ReportSystem/reports/`.
@@ -71,7 +72,7 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
    - `reportsystem.admin` – perform `/reports reload`, `/reports logoutall`, and bypass force-claim restrictions.
 
 5. **Use the commands**
-   - Players: `/report <type> <category> [<target>] <reason…>` (configured types appear in tab completion). The plugin enforces a configurable cooldown for non-staff.
+   - Players: `/report <type> <category> [<target>] <reason…>` (configured types appear in tab completion). When the report menu is enabled, running `/report` with no arguments opens the guided chat prompts instead. The plugin enforces a configurable cooldown for non-staff.
    - Staff queue: `/reports` with subcommands `claim`, `assign`, `unassign`, `close`, `chat`, `view`, `search`, `debug`, `reload`, `auth`, `logoutall`, plus filters like `/reports <type> [category]`.
    - History: `/reporthistory` with analogous subcommands `page`, `view`, `chat`, `reopen`.
 

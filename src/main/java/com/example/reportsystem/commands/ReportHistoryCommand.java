@@ -243,6 +243,7 @@ public class ReportHistoryCommand implements SimpleCommand {
 
         String tipChat  = config.msg("tip-chat", "View chat logs");
         String tipReopen = config.msg("tip-reopen", "Reopen this report");
+        String tipPunish = config.msg("tip-punish", "Run punish command");
         String tipJump  = config.msg("tip-jump-server", "Connect to this server");
 
         StringBuilder actions = new StringBuilder();
@@ -250,6 +251,14 @@ public class ReportHistoryCommand implements SimpleCommand {
                 .append("'><click:run_command:'/reporthistory chat ").append(r.id).append("'>Chat Logs</click></hover></aqua><gray>]</gray> ");
         actions.append("<gray>[</gray><green><hover:show_text:'").append(Text.escape(tipReopen))
                 .append("'><click:run_command:'/reporthistory reopen ").append(r.id).append("'>Reopen</click></hover></green><gray>]</gray> ");
+
+        String punishCmd = buildPunishCommand(r);
+        if (punishCmd != null) {
+            String punishLabel = config.msg("button-punish", "Punish");
+            actions.append("<gray>[</gray><red><hover:show_text:'").append(Text.escape(tipPunish))
+                    .append("'><click:run_command:'").append(Text.escape(punishCmd))
+                    .append("'>").append(Text.escape(punishLabel)).append("</click></hover></red><gray>]</gray> ");
+        }
 
         if (!"UNKNOWN".equalsIgnoreCase(serverName)) {
             String jumpCmdTemplate = config.msg("jump-command-template", "/server %server%");
@@ -301,13 +310,36 @@ public class ReportHistoryCommand implements SimpleCommand {
         return base + "/" + p;
     }
 
-    /** Infer server from the newest chat message (falls back to UNKNOWN). */
+    /** Infer server from source server or chat (falls back to UNKNOWN). */
     private String inferServer(Report r) {
-        if (r == null || r.chat == null || r.chat.isEmpty()) return "UNKNOWN";
+        if (r == null) return "UNKNOWN";
+        if (r.sourceServer != null && !r.sourceServer.isBlank()) {
+            return r.sourceServer;
+        }
+        if (r.reported != null && !r.reported.isBlank()) {
+            var opt = plugin.proxy().getPlayer(r.reported);
+            if (opt.isPresent()) {
+                String current = opt.get().getCurrentServer()
+                        .map(s -> s.getServerInfo().getName())
+                        .orElse(null);
+                if (current != null && !current.isBlank()) return current;
+            }
+        }
+        if (r.chat == null || r.chat.isEmpty()) return "UNKNOWN";
         return r.chat.stream()
                 .max(Comparator.comparingLong(cm -> cm.time))
                 .map(cm -> cm.server == null || cm.server.isBlank() ? "UNKNOWN" : cm.server)
                 .orElse("UNKNOWN");
+    }
+
+    private String buildPunishCommand(Report r) {
+        if (r == null) return null;
+        String template = config.punishCommand;
+        if (template == null || template.isBlank()) return null;
+        String target = r.reported == null ? "" : r.reported.trim();
+        if (target.isEmpty() || "n/a".equalsIgnoreCase(target) || "unknown".equalsIgnoreCase(target)) return null;
+        return template.replace("%player%", target)
+                .replace("%report-id%", String.valueOf(r.id));
     }
 
     private String colorStackBadge(int count) {
