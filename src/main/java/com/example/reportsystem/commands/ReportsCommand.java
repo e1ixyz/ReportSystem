@@ -301,14 +301,21 @@ public class ReportsCommand implements SimpleCommand {
                         .replace("%query%", query).replace("%scope%", scope));
                 int shown = 0, limit = Math.min(30, results.size());
                 String tip = expandTip();
-                String entryTemplate = msg("reports-list-entry",
-                        "%row%  <gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'/reports view %id%'>%expand_label%</click></hover></aqua><gray>]</gray>");
                 String expandLabel = expandLabel();
                 for (int i=0;i<limit;i++) {
                     Report r = results.get(i);
+                    String viewCommand = r.isOpen()
+                            ? "/reports view " + r.id
+                            : "/reporthistory view " + r.id;
+                    String entryTemplate = msg("reports-list-entry",
+                            "%row%  <gray>[</gray><aqua><hover:show_text:'%expand_tip%'><click:run_command:'%view_command%'>%expand_label%</click></hover></aqua><gray>]</gray>");
+                    if (!entryTemplate.contains("%view_command%")) {
+                        entryTemplate = entryTemplate.replace("/reports view %id%", "%view_command%");
+                    }
                     String entry = entryTemplate
                             .replace("%row%", fmtListLine(r))
                             .replace("%id%", String.valueOf(r.id))
+                            .replace("%view_command%", Text.escape(viewCommand))
                             .replace("%expand_tip%", Text.escape(tip))
                             .replace("%expand_label%", Text.escape(expandLabel));
                     reply(src, entry);
@@ -360,9 +367,11 @@ public class ReportsCommand implements SimpleCommand {
                     send(src, "auth-code-failed", "<red>Unable to generate an auth code. Do you have permission?</red>");
                     return;
                 }
-                reply(src,
-                        "<gray>Your one-time code:</gray> <white><bold>" + code.code + "</bold></white> " +
-                                "<gray>(expires in " + config.msg("auth-code-ttl-s", "120") + "s)</gray>");
+                int ttlSeconds = Math.max(15, config.auth.codeTtlSeconds);
+                reply(src, msg("auth-code-issued",
+                        "<gray>Your one-time code:</gray> <white><bold>%code%</bold></white> <gray>(expires in %seconds%s)</gray>")
+                        .replace("%code%", Text.escape(code.code))
+                        .replace("%seconds%", String.valueOf(ttlSeconds)));
                 String base = pickBaseUrl(config);
                 if (!base.isBlank()) {
                     String tip = config.msg("tip-open-login","Open login page");

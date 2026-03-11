@@ -244,6 +244,7 @@ messages:
   error-players-only-logout: "<red>Only players can logout their sessions.</red>"
   error-admin-permission: "<red>Admin permission required.</red>"
   auth-code-failed: "<red>Unable to generate an auth code. Do you have permission?</red>"
+  auth-code-issued: "<gray>Your one-time code:</gray> <white><bold>%code%</bold></white> <gray>(expires in %seconds%s)</gray>"
   auth-logoutall-success: "<gray>Revoked <white>%count%</white> web session(s).</gray>"
   usage-reports-view: "<yellow>Usage:</yellow> /reports view <id>"
   usage-reports-close: "<yellow>Usage:</yellow> /reports close <id>"
@@ -306,7 +307,6 @@ messages:
 
   # Chat log viewer (web and inline)
   open-chatlog-label: "Open chat log"
-  auth-code-ttl-s: "120"
   jump-command-template: "/server %server%"
 
 # ------------------------------------------------------------------------------------

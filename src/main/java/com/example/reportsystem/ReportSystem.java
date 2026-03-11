@@ -112,6 +112,7 @@ public final class ReportSystem {
 
             reportManager.setConfig(newCfg);
             chatLogService.setConfig(newCfg);
+            authService.setConfig(newCfg);
             notifier.setConfig(newCfg);
             if (reportCommand != null) reportCommand.setConfig(newCfg);
             if (reportsCommand != null) reportsCommand.setConfig(newCfg);

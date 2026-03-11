@@ -1,6 +1,12 @@
 # ReportSystem (Velocity)
 
-ReportSystem is a full-featured player reporting and moderation workflow plugin for [Velocity](https://velocitypowered.com) proxy networks. It streamlines how staff capture incident reports, inspect live evidence, triage and resolve cases, and optionally integrate web views or Discord notifications—all while persisting data safely on the proxy.
+ReportSystem is a full-featured player reporting and moderation workflow plugin for [Velocity](https://velocitypowered.com) proxy networks. It streamlines how staff capture incident reports, inspect live evidence, triage and resolve cases, and optionally integrate web views or Discord notifications, all while persisting data safely on the proxy.
+
+## Compatibility
+
+- **Platform**: Velocity proxy plugin (it does **not** run as a Paper/Bukkit plugin on backend servers).
+- **Build target**: Velocity API `3.4.0`, Java `17+`.
+- **Backend servers**: Compatible with modern backend networks including Paper `1.21.11` (the plugin runs on the proxy and is backend-version agnostic for core features).
 
 ## Feature Highlights
 
@@ -8,7 +14,7 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
 - **Live evidence capture** – chat logs are buffered for every player and appended to open reports in real time, with HTML export and web viewer support when enabled.
 - **Staff consoles** – `/reports` (open queue) and `/reporthistory` (closed queue) expose pagination, filters, quick actions (claim, assign, close, reopen) and MiniMessage-powered UI components.
 - **Priority scoring** – a multi-factor system ranks open reports using stack count, recency decay, severity mappings, captured evidence, assignment state, aging, and SLA breaches. `/reports debug <id>` explains the exact score breakdown.
-- **Persistence & reload safety** – each report is stored atomically as YAML under the plugin data directory, allowing restarts without data loss. `/reports reload` hot-reloads config and updates command instances.
+- **Persistence & reload safety** – each report is stored atomically as YAML under the plugin data directory, allowing restarts without data loss. `/reports reload` hot-reloads config, auth settings, and command/service instances.
 - **Flexible storage** – keep persistence on the filesystem or switch to the bundled MySQL backend for centralised storage across proxy instances.
 - **Notifications** – staff receive in-game alerts with hover/click actions, and optional Discord webhook delivery occurs asynchronously.
 - **Optional built-in web server** – serve HTML chat logs through a small HTTP server with cookie-based auth or via any external web stack.
@@ -69,11 +75,11 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
    - `reportsystem.reports` – access `/reports`, `/reporthistory`, bypass cooldown, and request auth codes.
    - `reportsystem.notify` – receive in-game notifications when new reports arrive or when reloads occur.
    - `reportsystem.forceclaim` – override another staff member’s claim via `/reports claim <id>`.
-   - `reportsystem.admin` – perform `/reports reload`, `/reports logoutall`, and bypass force-claim restrictions.
+   - `reportsystem.admin` – perform `/reports reload`, `/reports logoutall` (revoke your own web sessions), and bypass force-claim restrictions.
 
 5. **Use the commands**
    - Players: `/report <type> <category> [<target>] <reason…>` (configured types appear in tab completion). When the report menu is enabled, running `/report` with no arguments opens the guided chat prompts instead. The plugin enforces a configurable cooldown for non-staff.
-   - Staff queue: `/reports` with subcommands `claim`, `assign`, `unassign`, `close`, `chat`, `view`, `search`, `debug`, `reload`, `auth`, `logoutall`, plus filters like `/reports <type> [category]`.
+   - Staff queue: `/reports` with subcommands `claim`, `assign`, `unassign`, `close`, `chat`, `view`, `search`, `debug`, `reload`, `auth`, `logoutall`, plus filters like `/reports <type> [category]`. `search ... closed|all` entries link to `/reporthistory view <id>` for closed reports.
    - History: `/reporthistory` with analogous subcommands `page`, `view`, `chat`, `reopen`.
 
 ## Priority Scoring System
@@ -102,6 +108,7 @@ Run `/reports debug <id>` to view a breakdown showing each factor’s raw value,
 
 - **HTML exporter** – `/reports chat <id>` automatically exports to HTML when the HTTP server is enabled or when staff request the inline page.
 - **HTTP server** – uses Java’s built-in `com.sun.net.httpserver` with support for authenticated sessions, cookie names, open-path exceptions, and login code issuance via `/reports auth`. When `public-base-url` or `http-server.external-base-url` is configured, MiniMessage buttons link to the appropriate public URL.
+- **Auth code behavior** – login code expiry shown in chat is driven by `auth.code-ttl-seconds` from `config.yml`. On the login page, if a Minecraft name is entered, it must match the issued code owner.
 
 ## Discord Notifications
 

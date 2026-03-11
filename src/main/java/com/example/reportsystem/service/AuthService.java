@@ -38,19 +38,28 @@ public class AuthService {
     private final SecureRandom rng = new SecureRandom();
     private final Map<String, Code> codes = new ConcurrentHashMap<>();
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
-    private final PluginConfig cfg;
+    private volatile PluginConfig cfg;
     private final Logger log;
 
     public AuthService(PluginConfig cfg, Logger log) {
         this.cfg = cfg; this.log = log;
     }
 
+    public void setConfig(PluginConfig cfg) {
+        if (cfg != null) {
+            this.cfg = cfg;
+        }
+    }
+
     /** Issue a short one-time numeric code for a staff player. */
     public Code issueCodeFor(Player p) {
-        if (cfg.auth.requirePermission && !p.hasPermission(cfg.staffPermission)) return null;
-        int len = Math.max(4, cfg.auth.codeLength);
-        String code = generateDigits(len);
-        long ttl = Math.max(15_000L, cfg.auth.codeTtlSeconds * 1000L);
+        PluginConfig snapshot = this.cfg;
+        if (snapshot.auth.requirePermission && !p.hasPermission(snapshot.staffPermission)) return null;
+
+        pruneExpiredCodes();
+        int len = Math.max(4, snapshot.auth.codeLength);
+        String code = uniqueCode(len);
+        long ttl = Math.max(15_000L, snapshot.auth.codeTtlSeconds * 1000L);
         Code obj = new Code(code, p.getUniqueId(), p.getUsername(), System.currentTimeMillis() + ttl);
         codes.put(code, obj);
         log.info("Auth code {} issued to {} (ttl={}s)", code, p.getUsername(), ttl / 1000);
@@ -60,9 +69,14 @@ public class AuthService {
     /** Consume a code and create a session; returns session id or null. */
     public String redeemCode(String code, String claimedName) {
         if (code == null) return null;
+        PluginConfig snapshot = this.cfg;
         Code c = codes.remove(code);
         if (c == null || c.expired()) return null;
-        long ttl = Math.max(60_000L, cfg.auth.sessionTtlMinutes * 60_000L);
+        if (claimedName != null && !claimedName.isBlank() && !c.playerName.equalsIgnoreCase(claimedName.trim())) {
+            return null;
+        }
+        pruneExpiredSessions();
+        long ttl = Math.max(60_000L, snapshot.auth.sessionTtlMinutes * 60_000L);
         String sid = sign(randomToken());
         Session s = new Session(sid, c.playerUuid, c.playerName, System.currentTimeMillis() + ttl);
         sessions.put(sid, s);
@@ -73,9 +87,10 @@ public class AuthService {
     /** Validate a session cookie; refresh TTL on use. */
     public Session validate(String sid) {
         if (sid == null || sid.isBlank()) return null;
+        PluginConfig snapshot = this.cfg;
         Session s = sessions.get(sid);
         if (s == null || s.expired()) { if (s != null) sessions.remove(sid); return null; }
-        long ttl = Math.max(60_000L, cfg.auth.sessionTtlMinutes * 60_000L);
+        long ttl = Math.max(60_000L, snapshot.auth.sessionTtlMinutes * 60_000L);
         s.expiresAt = System.currentTimeMillis() + ttl;
         return s;
     }
@@ -100,6 +115,16 @@ public class AuthService {
         return sb.toString();
     }
 
+    private String uniqueCode(int len) {
+        for (int i = 0; i < 8; i++) {
+            String candidate = generateDigits(len);
+            if (!codes.containsKey(candidate)) {
+                return candidate;
+            }
+        }
+        return generateDigits(len);
+    }
+
     private String randomToken() {
         byte[] b = new byte[24];
         rng.nextBytes(b);
@@ -108,7 +133,8 @@ public class AuthService {
 
     /** Cheap HMAC-ish tag so session ids aren’t trivially forgeable. */
     private String sign(String token) {
-        String secret = cfg.auth.secret == null ? "default-secret" : cfg.auth.secret;
+        PluginConfig snapshot = this.cfg;
+        String secret = snapshot.auth.secret == null ? "default-secret" : snapshot.auth.secret;
         int h = (token + "|" + secret).hashCode();
         return token + "." + Integer.toHexString(h);
     }
@@ -119,9 +145,20 @@ public class AuthService {
         if (i <= 0) return false;
         String token = sid.substring(0, i);
         String tag = sid.substring(i + 1);
-        String secret = cfg.auth.secret == null ? "default-secret" : cfg.auth.secret;
+        PluginConfig snapshot = this.cfg;
+        String secret = snapshot.auth.secret == null ? "default-secret" : snapshot.auth.secret;
         int h = (token + "|" + secret).hashCode();
         return tag.equalsIgnoreCase(Integer.toHexString(h));
+    }
+
+    private void pruneExpiredCodes() {
+        long now = System.currentTimeMillis();
+        codes.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue().expiresAt < now);
+    }
+
+    private void pruneExpiredSessions() {
+        long now = System.currentTimeMillis();
+        sessions.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue().expiresAt < now);
     }
 
     public Map<String, Session> snapshotSessions() { return Map.copyOf(sessions); }
