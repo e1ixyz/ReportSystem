@@ -3,7 +3,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>com.example</groupId>
+  <groupId>io.github.e1ixyz</groupId>
   <artifactId>reportsystem</artifactId>
   <version>3.0.0</version>
   <name>ReportSystem</name>
@@ -86,15 +86,15 @@
               <relocations>
                 <relocation>
                   <pattern>com.google.gson</pattern>
-                  <shadedPattern>com.example.reportsystem.shaded.gson</shadedPattern>
+                  <shadedPattern>io.github.e1ixyz.reportsystem.shaded.gson</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>org.yaml.snakeyaml</pattern>
-                  <shadedPattern>com.example.reportsystem.shaded.snakeyaml</shadedPattern>
+                  <shadedPattern>io.github.e1ixyz.reportsystem.shaded.snakeyaml</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.mysql.cj</pattern>
-                  <shadedPattern>com.example.reportsystem.shaded.mysql</shadedPattern>
+                  <shadedPattern>io.github.e1ixyz.reportsystem.shaded.mysql</shadedPattern>
                 </relocation>
               </relocations>
             </configuration>

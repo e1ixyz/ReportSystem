@@ -6,7 +6,7 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
 
 - **Platform**: Velocity proxy plugin (it does **not** run as a Paper/Bukkit plugin on backend servers).
 - **Build target**: Velocity API `3.4.0`, Java `17+`.
-- **Backend servers**: Compatible with modern backend networks including Paper `1.21.11` (the plugin runs on the proxy and is backend-version agnostic for core features).
+- **Backend servers**: Compatible with modern backend networks including Paper/Spigot `1.21.11` (the plugin runs on the proxy and is backend-version agnostic for core features).
 
 ## Feature Highlights
 
@@ -80,6 +80,7 @@ ReportSystem is a full-featured player reporting and moderation workflow plugin 
 5. **Use the commands**
    - Players: `/report <type> <category> [<target>] <reason…>` (configured types appear in tab completion). When the report menu is enabled, running `/report` with no arguments opens the guided chat prompts instead. The plugin enforces a configurable cooldown for non-staff.
    - Staff queue: `/reports` with subcommands `claim`, `assign`, `unassign`, `close`, `chat`, `view`, `search`, `debug`, `reload`, `auth`, `logoutall`, plus filters like `/reports <type> [category]`. `search ... closed|all` entries link to `/reporthistory view <id>` for closed reports.
+   - `assign`, `unassign`, `assigntome`, `unassignme`, and `close` act on open reports only.
    - History: `/reporthistory` with analogous subcommands `page`, `view`, `chat`, `reopen`.
 
 ## Priority Scoring System
@@ -117,6 +118,7 @@ Run `/reports debug <id>` to view a breakdown showing each factor’s raw value,
 ## Development Notes
 
 - **Build** – `mvn package` (the project is a standard Maven module targeting Java 17).
+- **Namespace** – package and plugin main class are `io.github.e1ixyz.reportsystem`.
 - **Testing** – No automated tests are included; run the plugin on a Velocity test network to validate changes.
 - **Code style** – MiniMessage is used for all chat output. Whenever you add new MiniMessage strings or commands, ensure tab completion mirrors the runtime arguments (see `ReportsCommand` for examples).
 - **Persistence Safety** – `ReportManager` writes changes via temporary files and atomic move operations. Avoid editing report YAML directly while the proxy is live to prevent race conditions.
