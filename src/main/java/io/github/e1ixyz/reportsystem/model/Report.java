@@ -25,6 +25,9 @@ public class Report {
     /** Chat messages captured for chat reports */
     public List<ChatMessage> chat = new ArrayList<>();
 
+    /** Deliver to the reporting player when the report is resolved. */
+    public boolean pendingReporterResolutionNotice = false;
+
     public Report() {}
 
     public Report(long id, String reporter, String reported, ReportType rt, String reason, long timestamp) {

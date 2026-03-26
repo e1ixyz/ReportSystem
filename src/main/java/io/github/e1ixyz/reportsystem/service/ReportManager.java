@@ -46,6 +46,7 @@ public class ReportManager {
     private final Map<Long, Report> reports = new ConcurrentHashMap<>();
     private final AtomicLong nextId = new AtomicLong(1);
     private final ConcurrentHashMap<String, Set<Long>> openReportsByReported = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Set<Long>> pendingResolvedByReporter = new ConcurrentHashMap<>();
 
     /** last "activity" timestamp we use for stacking-window checks */
     private final Map<Long, Long> lastUpdateMillis = new ConcurrentHashMap<>();
@@ -292,6 +293,12 @@ public class ReportManager {
         r.status = ReportStatus.CLOSED;
         long now = System.currentTimeMillis();
         closedAtById.put(id, now);
+        if (shouldNotifyReporter(r.reporter)) {
+            r.pendingReporterResolutionNotice = true;
+            indexPendingResolvedReport(r);
+        } else {
+            clearPendingResolvedReport(r);
+        }
         trySave(r); // we also persist closedAt
     }
     public boolean reopen(long id) {
@@ -301,9 +308,35 @@ public class ReportManager {
         r.status = ReportStatus.OPEN;
         closedAtById.remove(id);
         lastUpdateMillis.put(id, System.currentTimeMillis());
+        clearPendingResolvedReport(r);
         indexOpenReport(r);
         trySave(r);
         return true;
+    }
+
+    /** Returns and clears pending resolve notifications for the reporting player. */
+    public List<Report> consumePendingReporterResolutionNotifications(String reporter) {
+        String key = keyForPlayer(reporter);
+        if (key == null) return List.of();
+
+        Set<Long> ids = pendingResolvedByReporter.remove(key);
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+
+        List<Report> pending = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            if (id == null) continue;
+            Report r = reports.get(id);
+            if (r == null || !r.pendingReporterResolutionNotice) continue;
+            if (!equalsCI(r.reporter, reporter)) continue;
+            r.pendingReporterResolutionNotice = false;
+            pending.add(r);
+            trySave(r);
+        }
+
+        pending.sort(Comparator.comparingLong(r -> closedAtById.getOrDefault(r.id, r.timestamp)));
+        return pending;
     }
 
     /** No-op (per-report saves are immediate). */
@@ -315,7 +348,7 @@ public class ReportManager {
 
     private void indexOpenReport(Report r) {
         if (r == null || !r.isOpen()) return;
-        String key = keyForReported(r.reported);
+        String key = keyForPlayer(r.reported);
         if (key == null) return;
         openReportsByReported
                 .computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
@@ -323,7 +356,7 @@ public class ReportManager {
     }
 
     private void removeIndexedReport(Report r) {
-        String key = keyForReported(r.reported);
+        String key = keyForPlayer(r.reported);
         if (key == null) return;
         Set<Long> ids = openReportsByReported.get(key);
         if (ids == null) return;
@@ -333,7 +366,33 @@ public class ReportManager {
         }
     }
 
-    private String keyForReported(String name) {
+    private void indexPendingResolvedReport(Report r) {
+        if (r == null || !r.pendingReporterResolutionNotice) return;
+        String key = keyForPlayer(r.reporter);
+        if (key == null) return;
+        pendingResolvedByReporter
+                .computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
+                .add(r.id);
+    }
+
+    private void clearPendingResolvedReport(Report r) {
+        if (r == null) return;
+        String key = keyForPlayer(r.reporter);
+        r.pendingReporterResolutionNotice = false;
+        if (key == null) return;
+        Set<Long> ids = pendingResolvedByReporter.get(key);
+        if (ids == null) return;
+        ids.remove(r.id);
+        if (ids.isEmpty()) {
+            pendingResolvedByReporter.remove(key, ids);
+        }
+    }
+
+    private boolean shouldNotifyReporter(String reporter) {
+        return keyForPlayer(reporter) != null && !"console".equalsIgnoreCase(reporter);
+    }
+
+    private String keyForPlayer(String name) {
         if (name == null) return null;
         String key = name.trim().toLowerCase(Locale.ROOT);
         return key.isEmpty() ? null : key;
@@ -359,7 +418,7 @@ public class ReportManager {
 
     private Report findStackTarget(String reported, ReportType rt) {
         String target = reported == null ? "" : reported;
-        String key = keyForReported(target);
+        String key = keyForPlayer(target);
         List<Report> candidates;
         if (key != null) {
             Set<Long> ids = openReportsByReported.get(key);
@@ -403,7 +462,11 @@ public class ReportManager {
 
     private void loadAll() throws Exception {
         long maxId = 0;
+        reports.clear();
+        lastUpdateMillis.clear();
+        closedAtById.clear();
         openReportsByReported.clear();
+        pendingResolvedByReporter.clear();
         List<StoredReportPayload> payloads = storage.loadAll();
         for (StoredReportPayload payload : payloads) {
             try {
@@ -419,6 +482,9 @@ public class ReportManager {
                     lastUpdateMillis.put(r.id, Math.max(r.timestamp, ca));
                     if (r.isOpen()) {
                         indexOpenReport(r);
+                    }
+                    if (r.pendingReporterResolutionNotice) {
+                        indexPendingResolvedReport(r);
                     }
                 }
             } catch (Exception ex) {
@@ -455,6 +521,7 @@ public class ReportManager {
         m.put("status", r.status == null ? ReportStatus.OPEN.name() : r.status.name());
         m.put("assignee", nullIfBlank(r.assignee));
         m.put("sourceServer", nullIfBlank(r.sourceServer));
+        m.put("pendingReporterResolutionNotice", r.pendingReporterResolutionNotice);
         long closedAt = closedAtById.getOrDefault(r.id, 0L);
         m.put("closedAt", closedAt);
 
@@ -500,6 +567,7 @@ public class ReportManager {
             r.status = parseStatus(st);
             r.assignee = cleanStr(m.get("assignee"));
             r.sourceServer = cleanStr(m.get("sourceServer"));
+            r.pendingReporterResolutionNotice = getBoolean(m.get("pendingReporterResolutionNotice"), false);
 
             Object chatObj = m.get("chat");
             if (chatObj instanceof List<?> list) {
@@ -547,6 +615,12 @@ public class ReportManager {
         if (o == null) return def;
         if (o instanceof Number n) return n.longValue();
         try { return Long.parseLong(String.valueOf(o)); } catch (Exception e) { return def; }
+    }
+
+    private boolean getBoolean(Object o, boolean def) {
+        if (o == null) return def;
+        if (o instanceof Boolean b) return b;
+        return Boolean.parseBoolean(String.valueOf(o));
     }
 
     private ReportStorage createStorage(Path dataDir, PluginConfig cfg) {

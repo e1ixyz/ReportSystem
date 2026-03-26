@@ -8,6 +8,7 @@ import io.github.e1ixyz.reportsystem.config.PluginConfig;
 import io.github.e1ixyz.reportsystem.service.AuthService;
 import io.github.e1ixyz.reportsystem.service.ChatLogService;
 import io.github.e1ixyz.reportsystem.service.Notifier;
+import io.github.e1ixyz.reportsystem.service.PlayerNotificationService;
 import io.github.e1ixyz.reportsystem.service.ReportManager;
 import io.github.e1ixyz.reportsystem.service.ReportMenuService;
 import io.github.e1ixyz.reportsystem.service.WebServer;
@@ -42,6 +43,7 @@ public final class ReportSystem {
     private ChatLogService chatLogService;
     private AuthService authService;
     private Notifier notifier;
+    private PlayerNotificationService playerNotificationService;
     private WebServer webServer;
     private ReportMenuService reportMenuService;
     private ReportCommand reportCommand;
@@ -72,8 +74,10 @@ public final class ReportSystem {
         this.chatLogService = new ChatLogService(this, reportManager, config);
         this.authService    = new AuthService(config, logger);
         this.notifier       = new Notifier(this, config);
+        this.playerNotificationService = new PlayerNotificationService(this, reportManager, config);
 
         proxy.getEventManager().register(this, chatLogService);
+        proxy.getEventManager().register(this, playerNotificationService);
 
         if (config.httpServer != null && config.httpServer.enabled) {
             var root = dataDir.resolve(config.htmlExportDir);
@@ -114,6 +118,7 @@ public final class ReportSystem {
             chatLogService.setConfig(newCfg);
             authService.setConfig(newCfg);
             notifier.setConfig(newCfg);
+            if (playerNotificationService != null) playerNotificationService.setConfig(newCfg);
             if (reportCommand != null) reportCommand.setConfig(newCfg);
             if (reportsCommand != null) reportsCommand.setConfig(newCfg);
             if (reportHistoryCommand != null) reportHistoryCommand.setConfig(newCfg);
@@ -154,4 +159,5 @@ public final class ReportSystem {
     public ChatLogService chatLogs() { return chatLogService; }
     public AuthService auth() { return authService; }
     public Notifier notifier() { return notifier; }
+    public PlayerNotificationService playerNotifications() { return playerNotificationService; }
 }

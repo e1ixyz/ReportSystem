@@ -193,6 +193,7 @@ messages:
   # Common
   not-found: "No such report: #%id%"
   closed: "Closed report #%id%"
+  report-resolved-notify: "Report #%id% has been marked as resolved."
   already-closed: "Report #%id% is already closed."
   assigned: "Assigned report #%id% to %assignee%"
   unassigned: "Unassigned report #%id%"

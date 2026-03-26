@@ -203,6 +203,9 @@ public class ReportsCommand implements SimpleCommand {
                 }
                 mgr.close(id); mgr.save();
                 reply(src, config.msg("closed","Closed report #%id%").replace("%id%", String.valueOf(id)));
+                if (plugin.playerNotifications() != null) {
+                    plugin.playerNotifications().deliverPendingResolvedNotificationsIfOnline(r.reporter);
+                }
                 try {
                     Object n = plugin.notifier();
                     if (n != null) n.getClass().getMethod("notifyClosed", Report.class).invoke(n, r);

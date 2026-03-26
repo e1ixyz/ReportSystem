@@ -1,8 +1,1 @@
-{
-  "id": "reportsystem",
-  "name": "ReportSystem",
-  "version": "3.0.0",
-  "description": "Dynamic reports with multi-factor report sorting, pagination, search, assignees, chat log webserver, and more.",
-  "authors": ["e1ixyz"],
-  "main": "io.github.e1ixyz.reportsystem.ReportSystem"
-}
+{"id":"reportsystem","name":"ReportSystem","version":"3.0.0","authors":["e1ixyz"],"dependencies":[],"main":"io.github.e1ixyz.reportsystem.ReportSystem"}
