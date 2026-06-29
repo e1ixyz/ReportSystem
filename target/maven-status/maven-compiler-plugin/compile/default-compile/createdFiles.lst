@@ -24,7 +24,6 @@ io/github/e1ixyz/reportsystem/config/PluginConfig$StorageConfig.class
 io/github/e1ixyz/reportsystem/model/Report.class
 io/github/e1ixyz/reportsystem/model/ReportStatus.class
 io/github/e1ixyz/reportsystem/util/Text.class
-io/github/e1ixyz/reportsystem/service/HttpServerService$1.class
 io/github/e1ixyz/reportsystem/service/ChatLogService.class
 io/github/e1ixyz/reportsystem/service/AuthService$Session.class
 io/github/e1ixyz/reportsystem/service/ReportMenuService$Stage.class
@@ -41,4 +40,3 @@ io/github/e1ixyz/reportsystem/model/ReportType.class
 io/github/e1ixyz/reportsystem/service/HtmlExporter.class
 io/github/e1ixyz/reportsystem/storage/MysqlReportStorage.class
 io/github/e1ixyz/reportsystem/service/WebServer.class
-io/github/e1ixyz/reportsystem/service/HttpServerService.class

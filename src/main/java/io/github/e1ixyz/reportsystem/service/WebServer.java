@@ -175,6 +175,13 @@ public class WebServer {
     private Path safeResolve(String uriPath) {
         Path p = root.resolve(uriPath.substring(1)).normalize();
         if (!p.startsWith(root)) return null; // prevent traversal
+        try {
+            // normalize() guards the path text, but Files.copy follows symlinks — verify the
+            // real (link-resolved) target is still inside root so a symlink can't escape it.
+            if (Files.exists(p) && !p.toRealPath().startsWith(root.toRealPath())) return null;
+        } catch (IOException e) {
+            return null;
+        }
         return p;
     }
 
@@ -247,7 +254,9 @@ public class WebServer {
 
     private String cookie(String name, String value, int ttlMinutes) {
         int maxAge = Math.max(60, ttlMinutes * 60);
-        return name + "=" + value + "; Max-Age=" + maxAge + "; Path=/; SameSite=Lax; HttpOnly";
+        String base = cfg.httpServer.externalBaseUrl;
+        String secure = (base != null && base.toLowerCase(Locale.ROOT).startsWith("https://")) ? "; Secure" : "";
+        return name + "=" + value + "; Max-Age=" + maxAge + "; Path=/; SameSite=Lax; HttpOnly" + secure;
     }
 
     private void respondHtml(HttpExchange ex, int code, String html) throws IOException {

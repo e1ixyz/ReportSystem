@@ -35,7 +35,7 @@ public class ReportCommand implements SimpleCommand {
     private final ReportSystem plugin;
     private final ReportManager mgr;
     private final ChatLogService chat;
-    private PluginConfig config;
+    private volatile PluginConfig config;
     private final ConcurrentMap<UUID, Long> lastReportAt = new ConcurrentHashMap<>();
     private ReportMenuService menuService;
 

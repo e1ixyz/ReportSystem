@@ -75,7 +75,7 @@ public final class QuickActions {
         return trimmed.isEmpty() ? "<aqua>" : trimmed;
     }
 
-    private static String closingTag(String color) {
+    public static String closingTag(String color) {
         if (color == null) return "";
         String trimmed = color.trim();
         if (!trimmed.startsWith("<") || !trimmed.endsWith(">")) return "";

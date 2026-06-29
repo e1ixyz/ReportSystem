@@ -120,10 +120,12 @@ public class ReportManager {
         var priority = config.priority;
         if (priority != null && priority.enabled) {
             long now = System.currentTimeMillis();
+            // Snapshot scores once: report fields mutate on other threads, and a live
+            // comparator would violate Comparator's contract and crash TimSort.
+            Map<Report, Double> scores = new IdentityHashMap<>();
+            for (Report r : list) scores.put(r, computePriorityScore(r, now, priority));
             list.sort((a, b) -> {
-                double sb = computePriorityScore(b, now, priority);
-                double sa = computePriorityScore(a, now, priority);
-                int cmp = Double.compare(sb, sa);
+                int cmp = Double.compare(scores.get(b), scores.get(a));
                 if (cmp != 0) return cmp;
                 return Long.compare(b.timestamp, a.timestamp);
             });
@@ -233,7 +235,6 @@ public class ReportManager {
         if (chat != null && r.reported != null && !r.reported.isBlank()) {
             List<ChatMessage> recent = chat.recentFor(r.reported, INITIAL_CHAT_WINDOW_MS);
             if (recent != null && !recent.isEmpty()) {
-                if (r.chat == null) r.chat = new ArrayList<>();
                 r.chat.addAll(recent);
             }
         }
@@ -247,24 +248,23 @@ public class ReportManager {
     }
 
     /** Append a chat message to a report (used by ChatLogService). */
-    public void appendChat(Long id, ChatMessage msg) {
+    public synchronized void appendChat(Long id, ChatMessage msg) {
         if (id == null || msg == null) return;
         Report r = reports.get(id);
         if (r == null) return;
-        if (r.chat == null) r.chat = new ArrayList<>();
         r.chat.add(msg);
         trySave(r);
         lastUpdateMillis.put(id, System.currentTimeMillis());
     }
 
     /** Assign/Unassign. */
-    public void assign(long id, String staff) {
+    public synchronized void assign(long id, String staff) {
         Report r = reports.get(id);
         if (r == null) return;
         r.assignee = safeStr(staff);
         trySave(r);
     }
-    public void unassign(long id) {
+    public synchronized void unassign(long id) {
         Report r = reports.get(id);
         if (r == null) return;
         r.assignee = null;
@@ -276,7 +276,7 @@ public class ReportManager {
     }
 
     /** Optional: persist the source server the report was filed from. */
-    public void updateSourceServer(long id, String server) {
+    public synchronized void updateSourceServer(long id, String server) {
         Report r = reports.get(id);
         if (r == null) return;
         r.sourceServer = (server == null || server.isBlank()) ? null : server;
@@ -284,7 +284,7 @@ public class ReportManager {
     }
 
     /** Close/Reopen. */
-    public void close(long id) {
+    public synchronized void close(long id) {
         Report r = reports.get(id);
         if (r == null) return;
         if (r.isOpen()) {
@@ -301,7 +301,7 @@ public class ReportManager {
         }
         trySave(r); // we also persist closedAt
     }
-    public boolean reopen(long id) {
+    public synchronized boolean reopen(long id) {
         Report r = reports.get(id);
         if (r == null) return false;
         if (r.isOpen()) return true;
@@ -400,6 +400,10 @@ public class ReportManager {
 
     private String safeStr(String s) {
         return s == null ? "" : s.trim();
+    }
+
+    private String orEmpty(String s) {
+        return s == null ? "" : s;
     }
 
     private boolean matches(Report r, String q) {
@@ -549,9 +553,9 @@ public class ReportManager {
 
             r.reporter = cleanStr(m.get("reporter"));
             r.reported = cleanStr(m.get("reported"));
-            r.typeId = cleanStr(m.get("typeId"));
+            r.typeId = orEmpty(cleanStr(m.get("typeId")));
             r.typeDisplay = cleanStr(m.get("typeDisplay"));
-            r.categoryId = cleanStr(m.get("categoryId"));
+            r.categoryId = orEmpty(cleanStr(m.get("categoryId")));
             r.categoryDisplay = cleanStr(m.get("categoryDisplay"));
             if (r.typeDisplay == null || r.typeDisplay.isBlank()) {
                 r.typeDisplay = r.typeId == null ? "unknown" : r.typeId;
@@ -571,16 +575,17 @@ public class ReportManager {
 
             Object chatObj = m.get("chat");
             if (chatObj instanceof List<?> list) {
-                if (r.chat == null) r.chat = new ArrayList<>();
+                List<ChatMessage> loaded = new ArrayList<>(list.size());
                 for (Object o : list) {
                     if (o instanceof Map<?, ?> mm) {
                         long t = getLong(mm.get("time"), System.currentTimeMillis());
                         String pl = cleanStr(mm.get("player"));
                         String sv = cleanStr(mm.get("server"));
                         String ms = cleanStr(mm.get("message"));
-                        r.chat.add(new ChatMessage(t, pl, sv, ms));
+                        loaded.add(new ChatMessage(t, pl, sv, ms));
                     }
                 }
+                r.chat.addAll(loaded); // single copy into the CopyOnWriteArrayList
             }
             return r;
         } catch (Throwable t) {

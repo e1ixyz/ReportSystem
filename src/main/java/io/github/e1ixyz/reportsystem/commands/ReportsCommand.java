@@ -39,7 +39,7 @@ public class ReportsCommand implements SimpleCommand {
 
     private final ReportSystem plugin;
     private final ReportManager mgr;
-    private PluginConfig config;
+    private volatile PluginConfig config;
     private final AuthService auth;
 
     public ReportsCommand(ReportSystem plugin, ReportManager mgr, PluginConfig config, AuthService auth) {
@@ -688,7 +688,7 @@ public class ReportsCommand implements SimpleCommand {
         else if (count > config.threshGold) color = config.colorGold;
         else if (count > config.threshYellow) color = config.colorYellow;
         else color = "<gray>";
-        String close = "</" + color.replace("<","").replace(">","") + ">";
+        String close = io.github.e1ixyz.reportsystem.util.QuickActions.closingTag(color);
         return " " + color + "(x" + count + ")" + close;
     }
 

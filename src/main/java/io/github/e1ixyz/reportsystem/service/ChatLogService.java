@@ -14,6 +14,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Captures chat:
@@ -35,6 +37,15 @@ public class ChatLogService {
 
     /** per-player ring buffer of recent chat (lowercased key -> deque of ChatMessage) */
     private final Map<String, Deque<ChatMessage>> recentByPlayer = new ConcurrentHashMap<>();
+
+    /** Single thread keeps chat persistence off the proxy chat thread while preserving line order.
+     *  Daemon: no explicit shutdown needed. ponytail: single thread, fine until save throughput
+     *  outpaces one disk; switch to a bounded pool + per-report ordering if that day comes. */
+    private final ExecutorService saveExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "ReportSystem-chatlog-save");
+        t.setDaemon(true);
+        return t;
+    });
 
     public ChatLogService(ReportSystem plugin, ReportManager mgr, PluginConfig config) {
         this.plugin = plugin;
@@ -98,10 +109,14 @@ public class ChatLogService {
         // 1) ALWAYS record in rolling buffer
         recordToBuffer(name, msg, now);
 
-        // 2) If the player is being watched, live-append to their open reports
+        // 2) If the player is being watched, live-append to their open reports.
+        //    Persist off the event thread so disk/MySQL I/O never blocks proxy chat.
         if (watchedPlayers.contains(lowered)) {
-            for (Report r : mgr.getOpenReportsFor(name)) {
-                mgr.appendChat(r.id, msg);
+            List<Report> open = mgr.getOpenReportsFor(name);
+            if (!open.isEmpty()) {
+                saveExecutor.execute(() -> {
+                    for (Report r : open) mgr.appendChat(r.id, msg);
+                });
             }
         }
     }

@@ -4,13 +4,20 @@ import io.github.e1ixyz.reportsystem.config.PluginConfig;
 import com.velocitypowered.api.proxy.Player;
 import org.slf4j.Logger;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AuthService {
     public static final class Code {
@@ -131,24 +138,46 @@ public class AuthService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
     }
 
-    /** Cheap HMAC-ish tag so session ids aren’t trivially forgeable. */
-    private String sign(String token) {
-        PluginConfig snapshot = this.cfg;
-        String secret = snapshot.auth.secret == null ? "default-secret" : snapshot.auth.secret;
-        int h = (token + "|" + secret).hashCode();
-        return token + "." + Integer.toHexString(h);
+    private static final AtomicBoolean WARNED_DEFAULT_SECRET = new AtomicBoolean(false);
+
+    /** Effective signing secret; warns once if it's missing or left at the default. */
+    private String effectiveSecret() {
+        String secret = cfg.auth.secret;
+        if (secret == null || secret.isBlank() || "change-me".equals(secret) || "default-secret".equals(secret)) {
+            if (WARNED_DEFAULT_SECRET.compareAndSet(false, true)) {
+                log.warn("auth.secret is unset or left at the default ('change-me'); web sessions are NOT secure. "
+                        + "Set a unique random auth.secret in config.yml.");
+            }
+            return secret == null || secret.isBlank() ? "change-me" : secret;
+        }
+        return secret;
     }
 
-    /** Basic check if the session id has the right tag. */
+    private byte[] hmac(String token, String secret) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return mac.doFinal(token.getBytes(StandardCharsets.UTF_8));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("HMAC-SHA256 unavailable", e);
+        }
+    }
+
+    /** HMAC-SHA256 tag so session ids can't be forged without the secret. */
+    private String sign(String token) {
+        return token + "." + HexFormat.of().formatHex(hmac(token, effectiveSecret()));
+    }
+
+    /** Constant-time check that the session id carries a valid HMAC tag. */
     public boolean looksSigned(String sid) {
+        if (sid == null) return false;
         int i = sid.lastIndexOf('.');
         if (i <= 0) return false;
         String token = sid.substring(0, i);
-        String tag = sid.substring(i + 1);
-        PluginConfig snapshot = this.cfg;
-        String secret = snapshot.auth.secret == null ? "default-secret" : snapshot.auth.secret;
-        int h = (token + "|" + secret).hashCode();
-        return tag.equalsIgnoreCase(Integer.toHexString(h));
+        byte[] got;
+        try { got = HexFormat.of().parseHex(sid.substring(i + 1)); }
+        catch (IllegalArgumentException e) { return false; }
+        return MessageDigest.isEqual(hmac(token, effectiveSecret()), got);
     }
 
     private void pruneExpiredCodes() {

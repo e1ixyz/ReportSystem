@@ -110,6 +110,7 @@ Run `/reports debug <id>` to view a breakdown showing each factor’s raw value,
 - **HTML exporter** – `/reports chat <id>` automatically exports to HTML when the HTTP server is enabled or when staff request the inline page.
 - **HTTP server** – uses Java’s built-in `com.sun.net.httpserver` with support for authenticated sessions, cookie names, open-path exceptions, and login code issuance via `/reports auth`. When `public-base-url` or `http-server.external-base-url` is configured, MiniMessage buttons link to the appropriate public URL.
 - **Auth code behavior** – login code expiry shown in chat is driven by `auth.code-ttl-seconds` from `config.yml`. On the login page, if a Minecraft name is entered, it must match the issued code owner.
+- **Session security** – session ids are signed with HMAC-SHA256 over `auth.secret` and verified in constant time. **Set a unique random `auth.secret`** in `config.yml`; leaving it at the default `change-me` logs a warning and leaves sessions forgeable. The session cookie is marked `Secure` automatically when `http-server.external-base-url` uses `https`.
 
 ## Discord Notifications
 

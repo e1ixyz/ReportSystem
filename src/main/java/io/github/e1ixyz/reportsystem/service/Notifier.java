@@ -12,7 +12,7 @@ import java.nio.charset.StandardCharsets;
 public class Notifier {
 
     private final ReportSystem plugin;
-    private PluginConfig config;
+    private volatile PluginConfig config;
 
     public Notifier(ReportSystem plugin, PluginConfig config) {
         this.plugin = plugin;
@@ -82,7 +82,22 @@ public class Notifier {
 
     private static String escape(String s) {
         if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"","\\\"").replace("\n","\\n").replace("\r","");
+        StringBuilder out = new StringBuilder(s.length() + 16);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\' -> out.append("\\\\");
+                case '"'  -> out.append("\\\"");
+                case '\n' -> out.append("\\n");
+                case '\r' -> out.append("\\r");
+                case '\t' -> out.append("\\t");
+                default -> {
+                    if (c < 0x20) out.append(String.format("\\u%04x", (int) c));
+                    else out.append(c);
+                }
+            }
+        }
+        return out.toString();
     }
 
     private static String truncate(String s) {

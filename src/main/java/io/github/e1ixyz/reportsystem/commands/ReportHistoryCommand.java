@@ -34,7 +34,7 @@ public class ReportHistoryCommand implements SimpleCommand {
 
     private final ReportSystem plugin;
     private final ReportManager mgr;
-    private PluginConfig config;
+    private volatile PluginConfig config;
 
     public ReportHistoryCommand(ReportSystem plugin, ReportManager mgr, PluginConfig config) {
         this.plugin = plugin;
@@ -351,7 +351,7 @@ public class ReportHistoryCommand implements SimpleCommand {
         else if (count > config.threshGold) color = config.colorGold;
         else if (count > config.threshYellow) color = config.colorYellow;
         else color = "<gray>";
-        String close = "</" + color.replace("<","").replace(">","") + ">";
+        String close = io.github.e1ixyz.reportsystem.util.QuickActions.closingTag(color);
         return " " + color + "(x" + count + ")" + close;
     }
 

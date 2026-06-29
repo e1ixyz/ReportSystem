@@ -1,7 +1,7 @@
 package io.github.e1ixyz.reportsystem.model;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class Report {
     public long id;
@@ -22,8 +22,9 @@ public class Report {
     /** where the report was filed from (proxy server name) */
     public String sourceServer = null;
 
-    /** Chat messages captured for chat reports */
-    public List<ChatMessage> chat = new ArrayList<>();
+    /** Chat messages captured for chat reports. Thread-safe: appended from the chat
+     *  event thread while iterated from command/HTTP threads. */
+    public List<ChatMessage> chat = new CopyOnWriteArrayList<>();
 
     /** Deliver to the reporting player when the report is resolved. */
     public boolean pendingReporterResolutionNotice = false;

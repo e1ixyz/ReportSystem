@@ -18,6 +18,7 @@ import com.velocitypowered.api.command.CommandManager;
 import com.velocitypowered.api.command.CommandMeta;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
+import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -106,6 +107,14 @@ public final class ReportSystem {
         cm.register(historyMeta, reportHistoryCommand);
 
         logger.info("ReportSystem enabled.");
+    }
+
+    @Subscribe
+    public void onShutdown(ProxyShutdownEvent e) {
+        if (webServer != null) {
+            webServer.stop();
+            webServer = null;
+        }
     }
 
     /** /reports reload */
